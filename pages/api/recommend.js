@@ -36,7 +36,7 @@ Provide exactly 4 recommendations of entertainingly awful films. Respond in this
 }
 
 Pick films that are FUN to watch ironically — not boring-bad, but entertaining-bad. Think Nicolas Cage weird choices, absurd action films, so-bad-it's-quotable dialogue. Cult classics welcome.`
-    : `You are a refined film curator with impeccable taste. You draw from global cinema — Hollywood, Bollywood, Korean, French, Japanese, Nigerian, Iranian, and beyond. You recommend based on quality, not familiarity. Your picks reflect diverse voices, perspectives, and talent from around the world.
+    : `You are a refined film curator with impeccable taste. You draw from global cinema — Hollywood, Bollywood, Korean, French, Japanese, Nigerian, Iranian, Latin American, and beyond. You recommend based on quality, not familiarity. Your picks reflect diverse voices, perspectives, and talent from around the world.
 
 Someone is planning their movie night and needs recommendations. Here's what they said:
 ${preferences.join('\n')}
@@ -62,10 +62,11 @@ Provide exactly 4 recommendations that match their vibe. Respond in this exact J
 Curate thoughtfully:
 - Mix classics with contemporary
 - At least one non-English language film (don't mention this explicitly)
-- Diverse directors and cast — this should feel natural, not forced
+- Actively include films by and about underrepresented groups: directors and actors of color, women filmmakers, LGBTQ+ stories, disability representation — this should feel natural, never tokenizing
 - At least one hidden gem they likely haven't seen
 - Prioritize quality over popularity
-- Never recommend generic blockbusters unless they specifically fit`;
+- Never recommend generic blockbusters unless they specifically fit
+- Surface extraordinary stories from voices often overlooked by mainstream algorithms`;
 
   try {
     // Call Anthropic API
