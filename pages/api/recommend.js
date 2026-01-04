@@ -1,6 +1,43 @@
+// Simple in-memory rate limiting (resets on deploy/restart)
+// For production, use Vercel KV or Redis
+const rateLimitMap = new Map();
+const DAILY_LIMIT = 200; // requests per day
+const RATE_LIMIT_WINDOW = 24 * 60 * 60 * 1000; // 24 hours
+
+function checkRateLimit() {
+  const now = Date.now();
+  const today = new Date().toDateString();
+  
+  if (!rateLimitMap.has(today)) {
+    // Clear old entries
+    rateLimitMap.clear();
+    rateLimitMap.set(today, { count: 0, resetAt: now + RATE_LIMIT_WINDOW });
+  }
+  
+  const limit = rateLimitMap.get(today);
+  
+  if (limit.count >= DAILY_LIMIT) {
+    return { allowed: false, remaining: 0 };
+  }
+  
+  limit.count++;
+  return { allowed: true, remaining: DAILY_LIMIT - limit.count };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Check rate limit
+  const rateLimit = checkRateLimit();
+  res.setHeader('X-RateLimit-Remaining', rateLimit.remaining);
+  
+  if (!rateLimit.allowed) {
+    return res.status(429).json({ 
+      error: 'Daily limit reached. Come back tomorrow!',
+      message: 'Movie Night has reached its daily recommendation limit. Please try again tomorrow.'
+    });
   }
 
   const { preferences, mode } = req.body;
@@ -69,7 +106,7 @@ Curate thoughtfully:
 - Surface extraordinary stories from voices often overlooked by mainstream algorithms`;
 
   try {
-    // Call Anthropic API
+    // Call Anthropic API - Using Haiku for speed (3x faster, 10x cheaper)
     const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -78,7 +115,7 @@ Curate thoughtfully:
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-haiku-4-5-20251001', // Faster model
         max_tokens: 2000,
         messages: [
           {
@@ -105,8 +142,8 @@ Curate thoughtfully:
 
     const result = JSON.parse(jsonMatch[0]);
 
-    // Fetch TMDB data for each recommendation
-    const recommendationsWithPosters = await Promise.all(
+    // Fetch TMDB data for all recommendations IN PARALLEL (faster)
+    const recommendationsWithData = await Promise.all(
       result.recommendations.map(async (rec) => {
         try {
           const searchQuery = rec.tmdb_query || rec.title;
@@ -124,23 +161,47 @@ Curate thoughtfully:
             const tmdbData = await tmdbResponse.json();
             if (tmdbData.results && tmdbData.results.length > 0) {
               const movie = tmdbData.results[0];
+              
+              // Generate review site links
+              const titleSlug = rec.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+              const encodedTitle = encodeURIComponent(rec.title);
+              
               return {
                 ...rec,
                 poster_path: movie.poster_path,
                 backdrop_path: movie.backdrop_path,
                 tmdb_id: movie.id,
+                tmdb_rating: movie.vote_average ? movie.vote_average.toFixed(1) : null,
+                // Review site links
+                links: {
+                  imdb: `https://www.imdb.com/find/?q=${encodedTitle}`,
+                  rottenTomatoes: `https://www.rottentomatoes.com/search?search=${encodedTitle}`,
+                  letterboxd: `https://letterboxd.com/search/${encodedTitle}/`,
+                  justWatch: `https://www.justwatch.com/us/search?q=${encodedTitle}`,
+                }
               };
             }
           }
         } catch (e) {
           console.error('TMDB fetch error:', e);
         }
-        return rec;
+        
+        // Fallback with just links if TMDB fails
+        const encodedTitle = encodeURIComponent(rec.title);
+        return {
+          ...rec,
+          links: {
+            imdb: `https://www.imdb.com/find/?q=${encodedTitle}`,
+            rottenTomatoes: `https://www.rottentomatoes.com/search?search=${encodedTitle}`,
+            letterboxd: `https://letterboxd.com/search/${encodedTitle}/`,
+            justWatch: `https://www.justwatch.com/us/search?q=${encodedTitle}`,
+          }
+        };
       })
     );
 
     return res.status(200).json({
-      recommendations: recommendationsWithPosters,
+      recommendations: recommendationsWithData,
     });
   } catch (error) {
     console.error('API error:', error);

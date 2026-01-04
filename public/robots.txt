@@ -1,0 +1,6 @@
+# robots.txt for Movie Night
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://thismovienight.com/sitemap.xml
