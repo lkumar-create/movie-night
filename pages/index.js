@@ -62,17 +62,27 @@ export default function Home() {
   const [rateLimitError, setRateLimitError] = useState(null);
   const [isScrolling, setIsScrolling] = useState(false);
 
-  // Load state from URL params on mount
+  // Load state from URL params on mount and auto-search if params exist
   useEffect(() => {
     if (router.isReady) {
       const { mood, watch, length, vibe, mode } = router.query;
+      const hasParams = mood || watch || length || vibe;
+      
       if (mood) setSelectedMoods(mood.split(','));
       if (watch) setSelectedWatch(watch);
       if (length) setSelectedLength(length);
       if (vibe) setCustomVibe(vibe);
       if (mode === 'bad') setBadMovieMode(true);
+      
+      // Auto-search if URL has search params (shareable link)
+      if (hasParams && !showResults && !isLoading) {
+        // Small delay to let state update
+        setTimeout(() => {
+          triggerSearch(mood, watch, length, vibe, mode === 'bad');
+        }, 100);
+      }
     }
-  }, [router.isReady, router.query]);
+  }, [router.isReady]);
 
   // Scroll-based navigation on main content
   useEffect(() => {
@@ -214,6 +224,60 @@ export default function Home() {
     }
   };
 
+  // Trigger search from URL params
+  const triggerSearch = async (mood, watch, length, vibe, isBadMode) => {
+    setIsLoading(true);
+    setShowResults(false);
+    setImageLoaded(false);
+
+    const phrases = isBadMode ? BAD_LOADING_PHRASES : LOADING_PHRASES;
+    let phraseIndex = 0;
+    setLoadingPhrase(phrases[0]);
+    const phraseInterval = setInterval(() => {
+      phraseIndex = (phraseIndex + 1) % phrases.length;
+      setLoadingPhrase(phrases[phraseIndex]);
+    }, 2000);
+
+    const preferences = [];
+    if (mood) preferences.push(`Mood: ${mood}`);
+    if (watch) preferences.push(`Watching: ${watch}`);
+    if (length) preferences.push(`Length: ${length}`);
+    if (vibe) preferences.push(`Request: "${vibe}"`);
+
+    try {
+      const response = await fetch('/api/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          preferences,
+          mode: isBadMode ? 'bad' : 'good',
+        }),
+      });
+
+      clearInterval(phraseInterval);
+
+      if (response.status === 429) {
+        const data = await response.json();
+        setRateLimitError(data.message);
+        setIsLoading(false);
+        return;
+      }
+
+      const data = await response.json();
+
+      if (data.recommendations) {
+        setRecommendations(data.recommendations);
+        setActiveIndex(0);
+        setShowResults(true);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      clearInterval(phraseInterval);
+    }
+
+    setIsLoading(false);
+  };
+
   const getRecommendations = async () => {
     setIsLoading(true);
     setShowResults(false);
@@ -338,7 +402,7 @@ export default function Home() {
         <link rel="canonical" href="https://thismovienight.com/" />
       </Head>
 
-      <div className="min-h-screen bg-black text-white">
+      <div className={`min-h-screen bg-black text-white ${showResults ? 'results-lock' : ''}`}>
         <style jsx global>{`
           @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@300;400;500&display=swap');
 
@@ -356,15 +420,16 @@ export default function Home() {
             box-sizing: border-box;
           }
 
-          html, body {
-            overflow: hidden;
-            height: 100%;
-          }
-
           body {
             font-family: 'Inter', -apple-system, sans-serif;
             -webkit-font-smoothing: antialiased;
             background: #000;
+          }
+
+          /* Only lock scroll on results view */
+          .results-lock {
+            overflow: hidden;
+            height: 100vh;
           }
 
           .font-display {
@@ -445,11 +510,6 @@ export default function Home() {
           .review-link:hover {
             opacity: 1;
           }
-
-          .landing-container {
-            height: 100vh;
-            overflow-y: auto;
-          }
         `}</style>
 
         {/* Film Grain Overlay */}
@@ -514,25 +574,24 @@ export default function Home() {
 
         {/* LANDING VIEW */}
         {!showResults && !isLoading && !rateLimitError && (
-          <div className="landing-container">
-            <div className="min-h-screen flex flex-col justify-center px-6 md:px-16 lg:px-24 py-20 max-w-5xl">
-              
-              <div className="deco-corner">
-                <h1 className="font-display text-6xl md:text-8xl lg:text-9xl leading-none tracking-tight font-semibold mb-2">
-                  Movie<br /><span className="text-gold">Night</span>
-                </h1>
-              </div>
+          <div className="min-h-screen flex flex-col justify-center px-6 md:px-16 lg:px-24 py-20 max-w-5xl">
+            
+            <div className="deco-corner">
+              <h1 className="font-display text-6xl md:text-8xl lg:text-9xl leading-none tracking-tight font-semibold mb-2">
+                Movie<br /><span className="text-gold">Night</span>
+              </h1>
+            </div>
 
-              <div className="deco-line-gradient w-24 mb-16 mt-6" />
+            <div className="deco-line-gradient w-24 mb-16 mt-6" />
 
-              {/* Mode Toggle */}
-              <div className="flex items-center gap-4 mb-12">
-                <button
-                  onClick={() => setBadMovieMode(false)}
-                  className={`text-sm transition-all ${!badMovieMode ? 'text-white' : 'text-white/40 hover:text-white/60'}`}
-                >
-                  Good Films
-                </button>
+            {/* Mode Toggle */}
+            <div className="flex items-center gap-4 mb-12">
+              <button
+                onClick={() => setBadMovieMode(false)}
+                className={`text-sm transition-all ${!badMovieMode ? 'text-white' : 'text-white/40 hover:text-white/60'}`}
+              >
+                Good Films
+              </button>
                 <button
                   onClick={() => setBadMovieMode(!badMovieMode)}
                   className={`w-12 h-6 rounded-full transition-all relative ${badMovieMode ? 'bg-red-500' : 'bg-white/10'}`}
@@ -679,26 +738,25 @@ export default function Home() {
               >
                 <span className="font-display italic">
                   {badMovieMode ? 'Find me trash' : 'Find my film'}
-                </span>
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 8.25L21 12m0 0l-3.75 3.75M21 12H3" />
-                </svg>
-              </button>
+              </span>
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 8.25L21 12m0 0l-3.75 3.75M21 12H3" />
+              </svg>
+            </button>
 
-              {/* Footer */}
-              <div className="mt-24 pt-8" style={{ borderTop: '1px solid var(--gold-dim)' }}>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-white/30 text-xs">
-                  <span>Film data from <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" className="hover:text-white/50 transition-colors" style={{ color: 'var(--gold-dim)' }}>TMDB</a></span>
-                  <a 
-                    href="https://lakumar.com" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="transition-colors hover:text-white/50"
-                    style={{ color: 'var(--gold-dim)' }}
-                  >
-                    Made by Lakshmi Kumar
-                  </a>
-                </div>
+            {/* Footer */}
+            <div className="mt-24 pt-8" style={{ borderTop: '1px solid var(--gold-dim)' }}>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-white/30 text-xs">
+                <span>Film data from <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" className="hover:text-white/50 transition-colors" style={{ color: 'var(--gold-dim)' }}>TMDB</a></span>
+                <a 
+                  href="https://lakumar.com" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="transition-colors hover:text-white/50"
+                  style={{ color: 'var(--gold-dim)' }}
+                >
+                  Made by Lakshmi Kumar
+                </a>
               </div>
             </div>
           </div>
