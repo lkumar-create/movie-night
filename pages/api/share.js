@@ -24,8 +24,11 @@ export default async function handler(req, res) {
       const key = `results_${id}`;
       
       // Write to Edge Config using Vercel REST API
+      const edgeConfigId = process.env.EDGE_CONFIG_ID;
+      console.log('EDGE_CONFIG_ID:', edgeConfigId, 'length:', edgeConfigId?.length);
+      
       const response = await fetch(
-        `https://api.vercel.com/v1/edge-config/${process.env.EDGE_CONFIG_ID}/items`,
+        `https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`,
         {
           method: 'PATCH',
           headers: {
@@ -52,7 +55,15 @@ export default async function handler(req, res) {
       
       if (result.status !== 'ok') {
         console.error('Edge Config write failed:', result);
-        return res.status(500).json({ error: 'Failed to save results' });
+        console.error('EDGE_CONFIG_ID was:', process.env.EDGE_CONFIG_ID);
+        console.error('EDGE_CONFIG_ID length:', process.env.EDGE_CONFIG_ID?.length);
+        return res.status(500).json({ 
+          error: 'Failed to save results',
+          debug: {
+            edgeConfigId: process.env.EDGE_CONFIG_ID ? `${process.env.EDGE_CONFIG_ID.substring(0, 10)}...` : 'undefined',
+            hasToken: !!process.env.VERCEL_ACCESS_TOKEN
+          }
+        });
       }
 
       return res.status(200).json({ id });
