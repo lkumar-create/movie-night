@@ -84,6 +84,12 @@ export default function Home() {
 
   // Use ref for scroll timeout to persist across renders
   const scrollTimeoutRef = useRef(null);
+  const activeIndexRef = useRef(activeIndex);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
 
   // Scroll-based navigation on main content
   useEffect(() => {
@@ -92,26 +98,27 @@ export default function Home() {
     const handleWheel = (e) => {
       e.preventDefault();
       
-      // If already scrolling, ignore
+      // If already scrolling, ignore completely
       if (scrollTimeoutRef.current) return;
       
-      let didScroll = false;
+      const currentIndex = activeIndexRef.current;
+      const maxIndex = recommendations.length - 1;
       
-      if (e.deltaY > 20 && activeIndex < recommendations.length - 1) {
-        setActiveIndex(prev => prev + 1);
+      // Require more significant scroll movement
+      if (e.deltaY > 30 && currentIndex < maxIndex) {
+        setActiveIndex(currentIndex + 1);
         setImageLoaded(false);
-        didScroll = true;
-      } else if (e.deltaY < -20 && activeIndex > 0) {
-        setActiveIndex(prev => prev - 1);
-        setImageLoaded(false);
-        didScroll = true;
-      }
-      
-      if (didScroll) {
-        // Block further scrolls for 500ms
+        // Block further scrolls for 800ms
         scrollTimeoutRef.current = setTimeout(() => {
           scrollTimeoutRef.current = null;
-        }, 500);
+        }, 800);
+      } else if (e.deltaY < -30 && currentIndex > 0) {
+        setActiveIndex(currentIndex - 1);
+        setImageLoaded(false);
+        // Block further scrolls for 800ms
+        scrollTimeoutRef.current = setTimeout(() => {
+          scrollTimeoutRef.current = null;
+        }, 800);
       }
     };
 
@@ -125,7 +132,7 @@ export default function Home() {
         scrollTimeoutRef.current = null;
       }
     };
-  }, [showResults, activeIndex, recommendations.length]);
+  }, [showResults, recommendations.length]);
 
   // Touch swipe support
   useEffect(() => {
@@ -215,8 +222,10 @@ export default function Home() {
     if (isSharing) return;
     setIsSharing(true);
     
+    console.log('Starting share...', { recommendations: recommendations.length });
+    
     try {
-      // Save results to KV and get shareable ID
+      // Save results to Edge Config and get shareable ID
       const response = await fetch('/api/share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -232,14 +241,17 @@ export default function Home() {
         }),
       });
 
-      if (response.ok) {
-        const { id } = await response.json();
-        const url = `https://thismovienight.com/r/${id}`;
+      console.log('Share response status:', response.status);
+      const data = await response.json();
+      console.log('Share response data:', data);
+
+      if (response.ok && data.id) {
+        const url = `https://thismovienight.com/r/${data.id}`;
         
         await navigator.clipboard.writeText(url);
         alert('Link copied! Your friends will see the exact same recommendations.');
       } else {
-        throw new Error('Failed to save');
+        throw new Error(data.error || 'Failed to save');
       }
     } catch (err) {
       console.error('Share error:', err);

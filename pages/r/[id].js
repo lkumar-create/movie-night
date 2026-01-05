@@ -30,6 +30,7 @@ export default function SharedResults() {
   const mainContentRef = useRef(null);
   const carouselRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
+  const activeIndexRef = useRef(0);
 
   const [recommendations, setRecommendations] = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -37,6 +38,11 @@ export default function SharedResults() {
   const [showTrailer, setShowTrailer] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
 
   // Fetch shared results
   useEffect(() => {
@@ -78,22 +84,21 @@ export default function SharedResults() {
       
       if (scrollTimeoutRef.current) return;
       
-      let didScroll = false;
+      const currentIndex = activeIndexRef.current;
+      const maxIndex = recommendations.length - 1;
       
-      if (e.deltaY > 20 && activeIndex < recommendations.length - 1) {
-        setActiveIndex(prev => prev + 1);
+      if (e.deltaY > 30 && currentIndex < maxIndex) {
+        setActiveIndex(currentIndex + 1);
         setImageLoaded(false);
-        didScroll = true;
-      } else if (e.deltaY < -20 && activeIndex > 0) {
-        setActiveIndex(prev => prev - 1);
-        setImageLoaded(false);
-        didScroll = true;
-      }
-      
-      if (didScroll) {
         scrollTimeoutRef.current = setTimeout(() => {
           scrollTimeoutRef.current = null;
-        }, 500);
+        }, 800);
+      } else if (e.deltaY < -30 && currentIndex > 0) {
+        setActiveIndex(currentIndex - 1);
+        setImageLoaded(false);
+        scrollTimeoutRef.current = setTimeout(() => {
+          scrollTimeoutRef.current = null;
+        }, 800);
       }
     };
 
@@ -107,7 +112,7 @@ export default function SharedResults() {
         scrollTimeoutRef.current = null;
       }
     };
-  }, [isLoading, activeIndex, recommendations.length]);
+  }, [isLoading, recommendations.length]);
 
   // Touch swipe support
   useEffect(() => {
