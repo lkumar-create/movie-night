@@ -1,4 +1,4 @@
-import { kv } from '@vercel/kv';
+import { get } from '@vercel/edge-config';
 
 // Generate short ID
 function generateId() {
@@ -11,7 +11,7 @@ function generateId() {
 }
 
 export default async function handler(req, res) {
-  // POST - Save results
+  // POST - Save results using Vercel API
   if (req.method === 'POST') {
     try {
       const { recommendations, searchParams } = req.body;
@@ -21,13 +21,39 @@ export default async function handler(req, res) {
       }
 
       const id = generateId();
+      const key = `results_${id}`;
       
-      // Store for 30 days
-      await kv.set(`results:${id}`, {
-        recommendations,
-        searchParams,
-        createdAt: Date.now()
-      }, { ex: 30 * 24 * 60 * 60 });
+      // Write to Edge Config using Vercel REST API
+      const response = await fetch(
+        `https://api.vercel.com/v1/edge-config/${process.env.EDGE_CONFIG_ID}/items`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${process.env.VERCEL_ACCESS_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            items: [
+              {
+                operation: 'upsert',
+                key: key,
+                value: {
+                  recommendations,
+                  searchParams,
+                  createdAt: Date.now()
+                }
+              }
+            ]
+          }),
+        }
+      );
+
+      const result = await response.json();
+      
+      if (result.status !== 'ok') {
+        console.error('Edge Config write failed:', result);
+        return res.status(500).json({ error: 'Failed to save results' });
+      }
 
       return res.status(200).json({ id });
     } catch (error) {
@@ -36,7 +62,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // GET - Retrieve results
+  // GET - Retrieve results using Edge Config SDK
   if (req.method === 'GET') {
     try {
       const { id } = req.query;
@@ -45,7 +71,8 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'No ID provided' });
       }
 
-      const data = await kv.get(`results:${id}`);
+      const key = `results_${id}`;
+      const data = await get(key);
       
       if (!data) {
         return res.status(404).json({ error: 'Results not found or expired' });

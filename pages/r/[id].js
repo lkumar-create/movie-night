@@ -29,6 +29,7 @@ export default function SharedResults() {
   const { id } = router.query;
   const mainContentRef = useRef(null);
   const carouselRef = useRef(null);
+  const scrollTimeoutRef = useRef(null);
 
   const [recommendations, setRecommendations] = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -36,7 +37,6 @@ export default function SharedResults() {
   const [showTrailer, setShowTrailer] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isScrolling, setIsScrolling] = useState(false);
 
   // Fetch shared results
   useEffect(() => {
@@ -72,28 +72,29 @@ export default function SharedResults() {
   // Scroll-based navigation
   useEffect(() => {
     if (isLoading || !mainContentRef.current) return;
-
-    let scrollTimeout;
     
     const handleWheel = (e) => {
       e.preventDefault();
       
-      if (isScrolling) return;
+      if (scrollTimeoutRef.current) return;
+      
+      let didScroll = false;
       
       if (e.deltaY > 20 && activeIndex < recommendations.length - 1) {
-        setIsScrolling(true);
         setActiveIndex(prev => prev + 1);
         setImageLoaded(false);
+        didScroll = true;
       } else if (e.deltaY < -20 && activeIndex > 0) {
-        setIsScrolling(true);
         setActiveIndex(prev => prev - 1);
         setImageLoaded(false);
+        didScroll = true;
       }
       
-      clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(() => {
-        setIsScrolling(false);
-      }, 400);
+      if (didScroll) {
+        scrollTimeoutRef.current = setTimeout(() => {
+          scrollTimeoutRef.current = null;
+        }, 500);
+      }
     };
 
     const container = mainContentRef.current;
@@ -101,9 +102,12 @@ export default function SharedResults() {
     
     return () => {
       container.removeEventListener('wheel', handleWheel);
-      clearTimeout(scrollTimeout);
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+        scrollTimeoutRef.current = null;
+      }
     };
-  }, [isLoading, activeIndex, recommendations.length, isScrolling]);
+  }, [isLoading, activeIndex, recommendations.length]);
 
   // Touch swipe support
   useEffect(() => {
@@ -514,34 +518,22 @@ export default function SharedResults() {
               ref={carouselRef}
               className="flex-shrink-0 p-4 lg:py-8 lg:pr-8 lg:pl-4 flex lg:flex-col gap-3 overflow-x-auto lg:overflow-y-auto lg:overflow-x-hidden carousel-scroll lg:w-44 lg:h-screen bg-black/80 lg:bg-transparent order-2"
             >
-              {recommendations.map((rec, idx) => {
-                const colors = [
-                  'from-amber-900/80 to-amber-950',
-                  'from-emerald-900/80 to-emerald-950',
-                  'from-blue-900/80 to-blue-950',
-                  'from-purple-900/80 to-purple-950',
-                  'from-rose-900/80 to-rose-950',
-                  'from-cyan-900/80 to-cyan-950',
-                ];
-                const colorIndex = rec.title.length % colors.length;
-                
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => selectFilm(idx)}
-                    className={`flex-shrink-0 rounded-lg overflow-hidden transition-all ${
-                      idx === activeIndex 
-                        ? 'ring-2 ring-offset-2 ring-offset-black opacity-100' 
-                        : 'opacity-50 hover:opacity-80'
-                    }`}
-                    style={{ '--tw-ring-color': 'var(--gold)' }}
-                  >
-                    <div className={`w-24 lg:w-full h-20 lg:h-24 flex items-center justify-center p-3 text-center bg-gradient-to-br ${colors[colorIndex]}`}>
-                      <span className="text-xs text-white/90 font-medium leading-tight line-clamp-3">{rec.title}</span>
-                    </div>
-                  </button>
-                );
-              })}
+              {recommendations.map((rec, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => selectFilm(idx)}
+                  className={`flex-shrink-0 rounded-lg overflow-hidden transition-all ${
+                    idx === activeIndex 
+                      ? 'ring-2 ring-offset-2 ring-offset-black opacity-100' 
+                      : 'opacity-50 hover:opacity-80'
+                  }`}
+                  style={{ '--tw-ring-color': 'var(--gold)' }}
+                >
+                  <div className="w-24 lg:w-full h-20 lg:h-24 flex items-center justify-center p-3 text-center bg-zinc-900">
+                    <span className="text-xs text-white/80 font-medium leading-tight line-clamp-3">{rec.title}</span>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         )}
