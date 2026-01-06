@@ -82,93 +82,11 @@ export default function Home() {
     }
   }, [router.isReady]);
 
-  // Use ref for scroll timeout to persist across renders
-  const scrollTimeoutRef = useRef(null);
+  // Keep activeIndex ref in sync (for desktop scroll if needed later)
   const activeIndexRef = useRef(activeIndex);
-  
-  // Keep ref in sync with state
   useEffect(() => {
     activeIndexRef.current = activeIndex;
   }, [activeIndex]);
-
-  // Scroll-based navigation on main content
-  useEffect(() => {
-    if (!showResults || !mainContentRef.current) return;
-    
-    const handleWheel = (e) => {
-      e.preventDefault();
-      
-      // If already scrolling, ignore completely
-      if (scrollTimeoutRef.current) return;
-      
-      const currentIndex = activeIndexRef.current;
-      const maxIndex = recommendations.length - 1;
-      
-      // Require more significant scroll movement
-      if (e.deltaY > 30 && currentIndex < maxIndex) {
-        setActiveIndex(currentIndex + 1);
-        setImageLoaded(false);
-        // Block further scrolls for 800ms
-        scrollTimeoutRef.current = setTimeout(() => {
-          scrollTimeoutRef.current = null;
-        }, 800);
-      } else if (e.deltaY < -30 && currentIndex > 0) {
-        setActiveIndex(currentIndex - 1);
-        setImageLoaded(false);
-        // Block further scrolls for 800ms
-        scrollTimeoutRef.current = setTimeout(() => {
-          scrollTimeoutRef.current = null;
-        }, 800);
-      }
-    };
-
-    const container = mainContentRef.current;
-    container.addEventListener('wheel', handleWheel, { passive: false });
-    
-    return () => {
-      container.removeEventListener('wheel', handleWheel);
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-        scrollTimeoutRef.current = null;
-      }
-    };
-  }, [showResults, recommendations.length]);
-
-  // Touch swipe support
-  useEffect(() => {
-    if (!showResults || !mainContentRef.current) return;
-
-    let touchStartY = 0;
-    
-    const handleTouchStart = (e) => {
-      touchStartY = e.changedTouches[0].screenY;
-    };
-    
-    const handleTouchEnd = (e) => {
-      const touchEndY = e.changedTouches[0].screenY;
-      const diff = touchStartY - touchEndY;
-      const threshold = 50;
-
-      if (Math.abs(diff) < threshold) return;
-
-      if (diff > 0 && activeIndex < recommendations.length - 1) {
-        setActiveIndex(prev => prev + 1);
-        setImageLoaded(false);
-      } else if (diff < 0 && activeIndex > 0) {
-        setActiveIndex(prev => prev - 1);
-        setImageLoaded(false);
-      }
-    };
-
-    const container = mainContentRef.current;
-    container.addEventListener('touchstart', handleTouchStart, { passive: true });
-    container.addEventListener('touchend', handleTouchEnd, { passive: true });
-    
-    return () => {
-      container.removeEventListener('touchstart', handleTouchStart);
-      container.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [showResults, activeIndex, recommendations.length]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -836,30 +754,54 @@ export default function Home() {
 
         {/* RESULTS VIEW */}
         {showResults && currentRec && (
-          <div className="h-screen flex flex-col lg:flex-row relative z-20 overflow-hidden">
+          <div className="min-h-screen flex flex-col lg:flex-row relative z-20">
             
-            {/* Main Content */}
-            <div ref={mainContentRef} className="flex-1 relative min-h-[60vh] lg:min-h-screen order-1">
-              {/* Background Image */}
+            {/* Desktop: Sidebar on right */}
+            <div className="hidden lg:flex flex-shrink-0 py-8 pr-8 pl-4 flex-col gap-3 overflow-y-auto carousel-scroll w-44 h-screen bg-transparent order-2">
+              {recommendations.map((rec, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => selectFilm(idx)}
+                  className={`flex-shrink-0 rounded-lg overflow-hidden transition-all ${
+                    idx === activeIndex 
+                      ? 'ring-2 ring-offset-2 ring-offset-black opacity-100' 
+                      : 'opacity-50 hover:opacity-80'
+                  }`}
+                  style={{ '--tw-ring-color': 'var(--gold)' }}
+                >
+                  <div className="w-full h-24 flex items-center justify-center p-3 text-center bg-zinc-900">
+                    <span className="text-xs text-white/80 font-medium leading-tight line-clamp-3">
+                      {rec.title}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col order-1">
+              
+              {/* Background Image - Desktop only fixed, mobile scrolls */}
               {backdropUrl && (
-                <div className="absolute inset-0">
+                <div className="absolute inset-0 lg:fixed lg:inset-0 lg:w-[calc(100%-11rem)]">
                   <img
                     src={backdropUrl}
                     alt=""
                     className={`w-full h-full object-cover transition-opacity duration-700 ${
-                      imageLoaded ? 'opacity-50' : 'opacity-0'
+                      imageLoaded ? 'opacity-40' : 'opacity-0'
                     }`}
                     onLoad={() => setImageLoaded(true)}
                     onError={() => setImageLoaded(true)}
                   />
-                  <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-transparent" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-black/30" />
                 </div>
               )}
 
-              <div className="relative h-full flex flex-col justify-between px-6 md:px-12 lg:px-16 pb-6 lg:pb-10 pt-6">
+              {/* Scrollable Content */}
+              <div className="relative flex-1 flex flex-col">
+                
                 {/* Top bar */}
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center px-6 py-4">
                   <button
                     onClick={resetAll}
                     className="flex items-center gap-2 transition-colors text-white/50 hover:text-white/80"
@@ -871,7 +813,6 @@ export default function Home() {
                   </button>
                   
                   <div className="flex items-center gap-4">
-                    {/* Refresh icon only - no text */}
                     <button
                       onClick={getRecommendations}
                       className="p-2 transition-colors text-white/50 hover:text-white/80"
@@ -894,106 +835,144 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Film info - Middle section */}
-                <div className="max-w-2xl animate-slideUp flex-1 flex flex-col justify-center py-8">
-                  {/* Genre / Duration */}
-                  <div className="deco-corner">
+                {/* Film info */}
+                <div className="flex-1 px-6 pb-6 lg:px-12 lg:pb-10">
+                  <div className="max-w-2xl">
+                    {/* Genre / Duration */}
                     <p className="text-sm uppercase tracking-widest mb-4 text-white/60">
                       {currentRec.genre} / {currentRec.runtime}
                     </p>
-                  </div>
 
-                  {/* Title */}
-                  <h2 className="font-display text-4xl md:text-5xl lg:text-6xl leading-none font-semibold mb-2">
-                    {currentRec.title}
-                  </h2>
+                    {/* Title */}
+                    <h2 className="font-display text-3xl md:text-4xl lg:text-5xl leading-tight font-semibold mb-2">
+                      {currentRec.title}
+                    </h2>
 
-                  {/* Director, Year */}
-                  <p className="text-white/60 text-lg mb-4">
-                    {currentRec.director}, {currentRec.year}
-                  </p>
-
-                  {/* Trust Signal */}
-                  {currentRec.trust && (
-                    <p className="text-sm mb-4 flex items-start gap-2" style={{ color: badMovieMode ? '#ef4444' : 'var(--gold)' }}>
-                      <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-                      </svg>
-                      <span>{currentRec.trust}</span>
+                    {/* Director, Year */}
+                    <p className="text-white/60 text-lg mb-4">
+                      {currentRec.director}, {currentRec.year}
                     </p>
-                  )}
 
-                  <div className="deco-line-gradient w-16 mb-4" />
+                    {/* Trust Signal */}
+                    {currentRec.trust && (
+                      <p className="text-sm mb-4 flex items-start gap-2" style={{ color: badMovieMode ? '#ef4444' : 'var(--gold)' }}>
+                        <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                        </svg>
+                        <span>{currentRec.trust}</span>
+                      </p>
+                    )}
 
-                  {/* Synopsis / Logline */}
-                  <p className="text-lg md:text-xl font-light leading-relaxed mb-3 text-white/90">
-                    {currentRec.logline}
-                  </p>
+                    <div className="deco-line-gradient w-16 mb-4" />
 
-                  {/* Why / Your review */}
-                  <p className="text-white/50 italic mb-6">{currentRec.why}</p>
+                    {/* Synopsis / Logline */}
+                    <p className="text-base md:text-lg font-light leading-relaxed mb-3 text-white/90">
+                      {currentRec.logline}
+                    </p>
 
-                  {/* Review Site Links */}
-                  {currentRec.links && (
-                    <div className="flex items-center gap-4 mb-6">
+                    {/* Why / Your review */}
+                    <p className="text-white/50 italic text-sm md:text-base mb-6">{currentRec.why}</p>
+
+                    {/* Review Site Links */}
+                    {currentRec.links && (
+                      <div className="flex items-center gap-4 mb-6">
+                        <a
+                          href={currentRec.links.imdb}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="review-link text-xs uppercase tracking-wider"
+                          style={{ color: 'var(--gold)' }}
+                        >
+                          IMDb
+                        </a>
+                        <a
+                          href={currentRec.links.rottenTomatoes}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="review-link text-xs uppercase tracking-wider"
+                          style={{ color: 'var(--gold)' }}
+                        >
+                          Rotten Tomatoes
+                        </a>
+                        <a
+                          href={currentRec.links.letterboxd}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="review-link text-xs uppercase tracking-wider"
+                          style={{ color: 'var(--gold)' }}
+                        >
+                          Letterboxd
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        onClick={() => setShowTrailer(true)}
+                        className="flex items-center gap-2 px-5 py-2.5 text-black font-medium transition-all hover:opacity-90 rounded-lg text-sm"
+                        style={{ backgroundColor: 'var(--gold)' }}
+                      >
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                        Watch Trailer
+                      </button>
                       <a
-                        href={currentRec.links.imdb}
+                        href={currentRec.links?.justWatch || `https://www.justwatch.com/us/search?q=${encodeURIComponent(currentRec.title)}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="review-link text-xs uppercase tracking-wider"
-                        style={{ color: 'var(--gold)' }}
+                        className="flex items-center gap-2 px-5 py-2.5 border transition-all hover:bg-white/5 rounded-lg text-white/80 text-sm"
+                        style={{ borderColor: 'var(--gold-dim)' }}
                       >
-                        IMDb
-                      </a>
-                      <a
-                        href={currentRec.links.rottenTomatoes}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="review-link text-xs uppercase tracking-wider"
-                        style={{ color: 'var(--gold)' }}
-                      >
-                        Rotten Tomatoes
-                      </a>
-                      <a
-                        href={currentRec.links.letterboxd}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="review-link text-xs uppercase tracking-wider"
-                        style={{ color: 'var(--gold)' }}
-                      >
-                        Letterboxd
+                        Where to Stream
                       </a>
                     </div>
-                  )}
-
-                  {/* Action Buttons */}
-                  <div className="flex flex-wrap gap-4">
-                    <button
-                      onClick={() => setShowTrailer(true)}
-                      className="flex items-center gap-3 px-6 py-3 text-black font-medium transition-all hover:opacity-90 rounded-lg"
-                      style={{ backgroundColor: 'var(--gold)' }}
-                    >
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                      Watch Trailer
-                    </button>
-                    <a
-                      href={currentRec.links?.justWatch || `https://www.justwatch.com/us/search?q=${encodeURIComponent(currentRec.title)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 px-6 py-3 border transition-all hover:bg-white/5 rounded-lg text-white/80"
-                      style={{ borderColor: 'var(--gold-dim)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--gold)'}
-                      onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--gold-dim)'}
-                    >
-                      Where to Stream
-                    </a>
                   </div>
                 </div>
 
-                {/* Footer - LEFT ALIGNED, same as landing */}
-                <div className="pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                {/* Mobile Accordions */}
+                <div className="lg:hidden border-t border-white/10">
+                  {recommendations.map((rec, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => selectFilm(idx)}
+                      className={`w-full px-6 py-4 flex items-center justify-between border-b border-white/10 transition-all ${
+                        idx === activeIndex 
+                          ? 'bg-white/5' 
+                          : 'bg-transparent'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span 
+                          className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                            idx === activeIndex 
+                              ? 'text-black' 
+                              : 'text-white/50 border border-white/30'
+                          }`}
+                          style={{ backgroundColor: idx === activeIndex ? 'var(--gold)' : 'transparent' }}
+                        >
+                          {idx + 1}
+                        </span>
+                        <span className={`text-sm font-medium ${idx === activeIndex ? 'text-white' : 'text-white/50'}`}>
+                          {rec.title}
+                        </span>
+                      </div>
+                      <svg 
+                        className={`w-4 h-4 transition-transform ${idx === activeIndex ? 'rotate-180 text-white' : 'text-white/30'}`} 
+                        fill="none" 
+                        viewBox="0 0 24 24" 
+                        stroke="currentColor" 
+                        strokeWidth="2"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                      </svg>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 border-t border-white/10">
                   <div className="flex items-center gap-4 text-white/40 text-xs">
                     <span>Film data from <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors text-white/50">TMDB</a></span>
                     <span>·</span>
@@ -1003,31 +982,6 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-            </div>
-
-            {/* Carousel - Right on desktop, bottom on mobile */}
-            <div 
-              ref={carouselRef}
-              className="flex-shrink-0 p-4 lg:py-8 lg:pr-8 lg:pl-4 flex lg:flex-col gap-3 overflow-x-auto lg:overflow-y-auto lg:overflow-x-hidden carousel-scroll lg:w-44 lg:h-screen bg-black/80 lg:bg-transparent order-2"
-            >
-              {recommendations.map((rec, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => selectFilm(idx)}
-                  className={`flex-shrink-0 rounded-lg overflow-hidden transition-all ${
-                    idx === activeIndex 
-                      ? 'ring-2 ring-offset-2 ring-offset-black opacity-100' 
-                      : 'opacity-50 hover:opacity-80'
-                  }`}
-                  style={{ '--tw-ring-color': 'var(--gold)' }}
-                >
-                  <div className="w-24 lg:w-full h-20 lg:h-24 flex items-center justify-center p-3 text-center bg-zinc-900">
-                    <span className="text-xs text-white/80 font-medium leading-tight line-clamp-3">
-                      {rec.title}
-                    </span>
-                  </div>
-                </button>
-              ))}
             </div>
           </div>
         )}
