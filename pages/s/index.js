@@ -24,9 +24,9 @@ function getDecadeColor(year) {
   return DECADE_COLORS[decade] || DECADE_COLORS[2020];
 }
 
-export default function SharedResults() {
+export default function SharedByUrl() {
   const router = useRouter();
-  const { d } = router.query; // encoded data
+  const { ids, d } = router.query; // ids = TMDB IDs, d = display data (encoded JSON with why, trust, logline)
 
   const [recommendations, setRecommendations] = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -35,42 +35,88 @@ export default function SharedResults() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Decode URL data
+  // Fetch movie details from TMDB
   useEffect(() => {
-    if (!d) return;
+    if (!ids) return;
 
-    try {
-      const decoded = JSON.parse(decodeURIComponent(atob(d)));
-      
-      // Expand slim format back to full
-      const fullRecs = decoded.map(rec => ({
-        title: rec.t,
-        year: rec.y,
-        director: rec.d,
-        genre: rec.g,
-        runtime: rec.r,
-        logline: rec.l,
-        why: rec.w,
-        trust: rec.s,
-        tmdb_id: rec.tm,
-        poster_path: rec.p,
-        backdrop_path: rec.b,
-        links: {
-          imdb: `https://www.imdb.com/find?q=${encodeURIComponent(rec.t + ' ' + rec.y)}`,
-          rottenTomatoes: `https://www.rottentomatoes.com/search?search=${encodeURIComponent(rec.t)}`,
-          letterboxd: `https://letterboxd.com/search/${encodeURIComponent(rec.t)}/`,
-          justWatch: `https://www.justwatch.com/us/search?q=${encodeURIComponent(rec.t)}`
+    const fetchMovies = async () => {
+      try {
+        const idList = ids.split(',').map(id => id.trim()).filter(Boolean);
+        
+        if (idList.length === 0) {
+          setError('No movies specified.');
+          setIsLoading(false);
+          return;
         }
-      }));
-      
-      setRecommendations(fullRecs);
-      setIsLoading(false);
-    } catch (err) {
-      console.error('Error decoding:', err);
-      setError('This link is invalid or corrupted.');
-      setIsLoading(false);
-    }
-  }, [d]);
+
+        // Parse display data if provided
+        let displayData = [];
+        if (d) {
+          try {
+            displayData = JSON.parse(decodeURIComponent(d));
+          } catch (e) {
+            console.error('Failed to parse display data:', e);
+          }
+        }
+
+        // Fetch each movie from TMDB
+        const TMDB_API_KEY = '2aa266e462e73f31d49cce3017e105e4';
+        
+        const moviePromises = idList.map(async (tmdbId, idx) => {
+          const res = await fetch(
+            `https://api.tmdb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=credits`
+          );
+          
+          if (!res.ok) return null;
+          
+          const movie = await res.json();
+          const director = movie.credits?.crew?.find(c => c.job === 'Director')?.name || 'Unknown';
+          const runtime = movie.runtime ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m` : 'Unknown';
+          const genres = movie.genres?.map(g => g.name).slice(0, 2).join(' / ') || 'Film';
+          
+          // Use display data if available
+          const dd = displayData[idx] || {};
+          
+          return {
+            title: movie.title,
+            year: movie.release_date?.split('-')[0] || 'Unknown',
+            director,
+            genre: genres,
+            runtime,
+            logline: dd.l || movie.overview || 'No description available.',
+            why: dd.w || 'A great film worth watching.',
+            trust: dd.t || '',
+            tmdb_id: movie.id,
+            poster_path: movie.poster_path,
+            backdrop_path: movie.backdrop_path,
+            links: {
+              imdb: `https://www.imdb.com/title/${movie.imdb_id || ''}`,
+              rottenTomatoes: `https://www.rottentomatoes.com/search?search=${encodeURIComponent(movie.title)}`,
+              letterboxd: `https://letterboxd.com/search/${encodeURIComponent(movie.title)}/`,
+              justWatch: `https://www.justwatch.com/us/search?q=${encodeURIComponent(movie.title)}`
+            }
+          };
+        });
+
+        const movies = (await Promise.all(moviePromises)).filter(Boolean);
+        
+        if (movies.length === 0) {
+          setError('Could not load the shared movies.');
+          setIsLoading(false);
+          return;
+        }
+
+        setRecommendations(movies);
+        setIsLoading(false);
+      } catch (err) {
+        console.error('Error fetching movies:', err);
+        setError('Failed to load recommendations.');
+        setIsLoading(false);
+      }
+    };
+
+    fetchMovies();
+  }, [ids, d]);
 
   const currentRec = recommendations[activeIndex];
   const isVintageFilm = currentRec?.year && parseInt(currentRec.year) < 1990;
@@ -84,7 +130,6 @@ export default function SharedResults() {
     setActiveIndex(index);
     setImageLoaded(false);
     setShowTrailer(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const copyCurrentUrl = async () => {
@@ -102,7 +147,6 @@ export default function SharedResults() {
         <title>Movie Night — Shared Recommendations</title>
         <meta name="description" content="Check out these movie recommendations from Movie Night!" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#000000" />
         <link rel="icon" href="/favicon.png" />
       </Head>
 
@@ -113,7 +157,6 @@ export default function SharedResults() {
           :root {
             --gold: #C9A962;
             --gold-light: #E5D4A1;
-            --gold-dark: #8B7235;
             --gold-dim: rgba(201, 169, 98, 0.6);
           }
 
@@ -125,8 +168,6 @@ export default function SharedResults() {
           .font-display {
             font-family: 'Playfair Display', Georgia, serif;
           }
-
-          .text-gold { color: var(--gold); }
 
           .deco-line-gradient {
             height: 1px;
@@ -141,6 +182,14 @@ export default function SharedResults() {
             opacity: 1;
           }
 
+          .scrollbar-hide {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+          }
+          .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+          }
+
           .film-grain {
             position: fixed;
             inset: 0;
@@ -151,10 +200,10 @@ export default function SharedResults() {
           }
         `}</style>
 
-        {/* Film Grain Overlay */}
+        {/* Film Grain */}
         {!isLoading && isVintageFilm && <div className="film-grain" />}
 
-        {/* Decade Color Tint */}
+        {/* Decade Tint */}
         {!isLoading && currentRec && (
           <div 
             className="fixed inset-0 pointer-events-none z-10"
@@ -192,8 +241,8 @@ export default function SharedResults() {
         {/* LOADING */}
         {isLoading && (
           <div className="h-screen flex flex-col items-center justify-center px-8">
-            <p className="font-display text-2xl italic" style={{ color: 'var(--gold)' }}>
-              Loading recommendations...
+            <p className="font-display text-2xl md:text-3xl italic" style={{ color: 'var(--gold)' }}>
+              Loading shared recommendations...
             </p>
           </div>
         )}
@@ -220,7 +269,7 @@ export default function SharedResults() {
         {!isLoading && !error && currentRec && (
           <div className="min-h-screen lg:flex lg:flex-row relative z-20">
             
-            {/* Desktop Sidebar */}
+            {/* Desktop sidebar */}
             <div className="hidden lg:flex flex-shrink-0 py-8 pr-8 pl-4 flex-col gap-3 overflow-y-auto w-44 h-screen order-2">
               {recommendations.map((rec, idx) => (
                 <button
@@ -242,42 +291,33 @@ export default function SharedResults() {
               ))}
             </div>
 
-            {/* Mobile Accordions */}
-            <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-black border-t border-white/10 max-h-52 overflow-y-auto">
-              {recommendations.map((rec, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => selectFilm(idx)}
-                  className={`w-full px-4 py-3 flex items-center justify-between border-b border-white/5 ${
-                    idx === activeIndex ? 'bg-white/5' : 'bg-black'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span 
-                      className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 ${
-                        idx === activeIndex 
-                          ? 'text-black' 
-                          : 'text-white/40 border border-white/20'
-                      }`}
-                      style={{ backgroundColor: idx === activeIndex ? 'var(--gold)' : 'transparent' }}
-                    >
-                      {idx + 1}
-                    </span>
-                    <span className={`text-sm truncate ${idx === activeIndex ? 'text-white font-medium' : 'text-white/40'}`}>
+            {/* Mobile: Netflix-style horizontal tabs */}
+            <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-black border-t border-white/10">
+              <div className="flex overflow-x-auto scrollbar-hide px-2">
+                {recommendations.map((rec, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      selectFilm(idx);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className={`flex-shrink-0 py-3 px-4 transition-all border-b-2 ${
+                      idx === activeIndex 
+                        ? 'border-current' 
+                        : 'border-transparent'
+                    }`}
+                    style={{ color: idx === activeIndex ? 'var(--gold)' : 'rgba(255,255,255,0.4)' }}
+                  >
+                    <span className="font-display text-xs whitespace-nowrap">
                       {rec.title}
                     </span>
-                  </div>
-                  {idx === activeIndex && (
-                    <span className="text-xs px-2 py-0.5 rounded flex-shrink-0" style={{ backgroundColor: 'var(--gold)', color: 'black' }}>
-                      viewing
-                    </span>
-                  )}
-                </button>
-              ))}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Main Content */}
-            <div className="flex-1 flex flex-col order-1 pb-52 lg:pb-0">
+            {/* Main content */}
+            <div className="flex-1 flex flex-col order-1 pb-16 lg:pb-0">
               
               {/* Background */}
               {backdropUrl && (
@@ -300,10 +340,7 @@ export default function SharedResults() {
                 
                 {/* Top bar */}
                 <div className="flex justify-between items-center px-6 py-4">
-                  <a
-                    href="/"
-                    className="flex items-center gap-2 text-white/50 hover:text-white/80"
-                  >
+                  <a href="/" className="flex items-center gap-2 text-white/50 hover:text-white/80">
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
                     </svg>
@@ -353,11 +390,13 @@ export default function SharedResults() {
 
                     <p className="text-white/50 italic text-sm md:text-base mb-6">{currentRec.why}</p>
 
-                    <div className="flex items-center gap-4 mb-6">
-                      <a href={currentRec.links.imdb} target="_blank" rel="noopener noreferrer" className="review-link text-xs uppercase tracking-wider" style={{ color: 'var(--gold)' }}>IMDb</a>
-                      <a href={currentRec.links.rottenTomatoes} target="_blank" rel="noopener noreferrer" className="review-link text-xs uppercase tracking-wider" style={{ color: 'var(--gold)' }}>Rotten Tomatoes</a>
-                      <a href={currentRec.links.letterboxd} target="_blank" rel="noopener noreferrer" className="review-link text-xs uppercase tracking-wider" style={{ color: 'var(--gold)' }}>Letterboxd</a>
-                    </div>
+                    {currentRec.links && (
+                      <div className="flex items-center gap-4 mb-6">
+                        <a href={currentRec.links.imdb} target="_blank" rel="noopener noreferrer" className="review-link text-xs uppercase tracking-wider" style={{ color: 'var(--gold)' }}>IMDb</a>
+                        <a href={currentRec.links.rottenTomatoes} target="_blank" rel="noopener noreferrer" className="review-link text-xs uppercase tracking-wider" style={{ color: 'var(--gold)' }}>Rotten Tomatoes</a>
+                        <a href={currentRec.links.letterboxd} target="_blank" rel="noopener noreferrer" className="review-link text-xs uppercase tracking-wider" style={{ color: 'var(--gold)' }}>Letterboxd</a>
+                      </div>
+                    )}
 
                     <div className="flex flex-wrap gap-3">
                       <button
@@ -371,7 +410,7 @@ export default function SharedResults() {
                         Watch Trailer
                       </button>
                       <a
-                        href={currentRec.links.justWatch}
+                        href={currentRec.links?.justWatch}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-2 px-5 py-2.5 border rounded-lg text-white/80 text-sm"
@@ -383,8 +422,8 @@ export default function SharedResults() {
                   </div>
                 </div>
 
-                {/* Footer - desktop only */}
-                <div className="hidden lg:block px-6 py-4 border-t border-white/10">
+                {/* Footer */}
+                <div className="px-6 py-4 border-t border-white/10">
                   <div className="flex items-center gap-4 text-white/40 text-xs">
                     <span>Film data from <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" className="text-white/50 hover:text-white/60">TMDB</a></span>
                     <span>·</span>

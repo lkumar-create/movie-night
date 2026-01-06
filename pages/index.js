@@ -141,43 +141,31 @@ export default function Home() {
     setIsSharing(true);
     
     try {
-      // Encode recommendations in URL - slim down to essential fields
-      const slimRecs = recommendations.map(rec => ({
-        t: rec.title,
-        y: rec.year,
-        d: rec.director,
-        g: rec.genre,
-        r: rec.runtime,
-        l: rec.logline,
-        w: rec.why,
-        s: rec.trust,
-        tm: rec.tmdb_id,
-        p: rec.poster_path,
-        b: rec.backdrop_path
+      // Get TMDB IDs for URL
+      const ids = recommendations.map(rec => rec.tmdb_id).filter(Boolean).join(',');
+      
+      // Encode display data (why, trust, logline) - keeps the personalized recommendations
+      const displayData = recommendations.map(rec => ({
+        l: rec.logline?.substring(0, 200), // logline (truncated)
+        w: rec.why?.substring(0, 150),     // why
+        t: rec.trust?.substring(0, 100)    // trust signal
       }));
       
-      // Compress and encode
-      const encoded = btoa(encodeURIComponent(JSON.stringify(slimRecs)));
-      const url = `https://thismovienight.com/s?d=${encoded}`;
+      const encoded = encodeURIComponent(JSON.stringify(displayData));
+      const url = `https://thismovienight.com/s?ids=${ids}&d=${encoded}`;
       
       await navigator.clipboard.writeText(url);
       alert('Link copied! Your friends will see the exact same recommendations.');
     } catch (err) {
       console.error('Share error:', err);
-      // Fallback to search params URL
-      const params = new URLSearchParams();
-      if (selectedMoods.length > 0) params.set('mood', selectedMoods.join(','));
-      if (selectedWatch) params.set('watch', selectedWatch);
-      if (selectedLength) params.set('length', selectedLength);
-      if (customVibe.trim()) params.set('vibe', customVibe.trim());
-      if (badMovieMode) params.set('mode', 'bad');
-      
-      const fallbackUrl = `https://thismovienight.com/?${params.toString()}`;
+      // Fallback - just IDs without display data
       try {
-        await navigator.clipboard.writeText(fallbackUrl);
-        alert('Link copied! (Note: Your friend will get fresh recommendations with same search.)');
+        const ids = recommendations.map(rec => rec.tmdb_id).filter(Boolean).join(',');
+        const url = `https://thismovienight.com/s?ids=${ids}`;
+        await navigator.clipboard.writeText(url);
+        alert('Link copied!');
       } catch (e) {
-        prompt('Copy this link:', fallbackUrl);
+        alert('Could not copy link. Please try again.');
       }
     }
     
@@ -459,6 +447,14 @@ export default function Home() {
             -ms-overflow-style: none;
           }
           .carousel-scroll::-webkit-scrollbar {
+            display: none;
+          }
+
+          .scrollbar-hide {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+          }
+          .scrollbar-hide::-webkit-scrollbar {
             display: none;
           }
 
@@ -769,9 +765,9 @@ export default function Home() {
               ))}
             </div>
 
-            {/* Mobile: Fixed compact tabs at bottom */}
-            <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-black/95 backdrop-blur border-t border-white/10">
-              <div className="flex">
+            {/* Mobile: Netflix-style horizontal tabs */}
+            <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-black border-t border-white/10">
+              <div className="flex overflow-x-auto scrollbar-hide px-2">
                 {recommendations.map((rec, idx) => (
                   <button
                     key={idx}
@@ -779,23 +775,14 @@ export default function Home() {
                       selectFilm(idx);
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
-                    className={`flex-1 py-3 px-2 flex flex-col items-center gap-1 transition-all border-r border-white/5 last:border-r-0 ${
+                    className={`flex-shrink-0 py-3 px-4 transition-all border-b-2 ${
                       idx === activeIndex 
-                        ? 'bg-white/10' 
-                        : 'bg-transparent'
+                        ? 'border-current' 
+                        : 'border-transparent'
                     }`}
+                    style={{ color: idx === activeIndex ? 'var(--gold)' : 'rgba(255,255,255,0.4)' }}
                   >
-                    <span 
-                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
-                        idx === activeIndex 
-                          ? 'text-black' 
-                          : 'text-white/40 border border-white/20'
-                      }`}
-                      style={{ backgroundColor: idx === activeIndex ? 'var(--gold)' : 'transparent' }}
-                    >
-                      {idx + 1}
-                    </span>
-                    <span className={`text-[10px] text-center leading-tight line-clamp-2 ${idx === activeIndex ? 'text-white' : 'text-white/40'}`}>
+                    <span className="font-display text-xs whitespace-nowrap">
                       {rec.title}
                     </span>
                   </button>
@@ -804,7 +791,7 @@ export default function Home() {
             </div>
 
             {/* Main Content Area */}
-            <div className="flex-1 flex flex-col order-1 pb-24 lg:pb-0">
+            <div className="flex-1 flex flex-col order-1 pb-16 lg:pb-0">
               
               {/* Background Image */}
               {backdropUrl && (
