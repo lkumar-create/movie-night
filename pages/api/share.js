@@ -21,7 +21,23 @@ export default async function handler(req, res) {
       }
 
       const id = generateId();
-      const key = `results_${id}`;
+      const key = `r_${id}`;
+      
+      // Slim down recommendations to essential fields only (Edge Config has size limits)
+      const slimRecs = recommendations.map(rec => ({
+        title: rec.title,
+        year: rec.year,
+        director: rec.director,
+        genre: rec.genre,
+        runtime: rec.runtime,
+        logline: rec.logline,
+        why: rec.why,
+        trust: rec.trust,
+        tmdb_id: rec.tmdb_id,
+        poster_path: rec.poster_path,
+        backdrop_path: rec.backdrop_path,
+        links: rec.links
+      }));
       
       // Write to Edge Config using Vercel REST API
       const edgeConfigId = process.env.EDGE_CONFIG_ID;
@@ -40,11 +56,7 @@ export default async function handler(req, res) {
               {
                 operation: 'upsert',
                 key: key,
-                value: {
-                  recommendations,
-                  searchParams,
-                  createdAt: Date.now()
-                }
+                value: slimRecs
               }
             ]
           }),
@@ -82,14 +94,15 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'No ID provided' });
       }
 
-      const key = `results_${id}`;
+      const key = `r_${id}`;
       const data = await get(key);
       
       if (!data) {
         return res.status(404).json({ error: 'Results not found or expired' });
       }
 
-      return res.status(200).json(data);
+      // data is now just the array of recommendations
+      return res.status(200).json({ recommendations: data });
     } catch (error) {
       console.error('Error retrieving results:', error);
       return res.status(500).json({ error: 'Failed to retrieve results' });

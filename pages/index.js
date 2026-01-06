@@ -140,37 +140,28 @@ export default function Home() {
     if (isSharing) return;
     setIsSharing(true);
     
-    console.log('Starting share...', { recommendations: recommendations.length });
-    
     try {
-      // Save results to Edge Config and get shareable ID
-      const response = await fetch('/api/share', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recommendations,
-          searchParams: {
-            mood: selectedMoods.join(','),
-            watch: selectedWatch,
-            length: selectedLength,
-            vibe: customVibe,
-            mode: badMovieMode ? 'bad' : 'good'
-          }
-        }),
-      });
-
-      console.log('Share response status:', response.status);
-      const data = await response.json();
-      console.log('Share response data:', data);
-
-      if (response.ok && data.id) {
-        const url = `https://thismovienight.com/r/${data.id}`;
-        
-        await navigator.clipboard.writeText(url);
-        alert('Link copied! Your friends will see the exact same recommendations.');
-      } else {
-        throw new Error(data.error || 'Failed to save');
-      }
+      // Encode recommendations in URL - slim down to essential fields
+      const slimRecs = recommendations.map(rec => ({
+        t: rec.title,
+        y: rec.year,
+        d: rec.director,
+        g: rec.genre,
+        r: rec.runtime,
+        l: rec.logline,
+        w: rec.why,
+        s: rec.trust,
+        tm: rec.tmdb_id,
+        p: rec.poster_path,
+        b: rec.backdrop_path
+      }));
+      
+      // Compress and encode
+      const encoded = btoa(encodeURIComponent(JSON.stringify(slimRecs)));
+      const url = `https://thismovienight.com/s?d=${encoded}`;
+      
+      await navigator.clipboard.writeText(url);
+      alert('Link copied! Your friends will see the exact same recommendations.');
     } catch (err) {
       console.error('Share error:', err);
       // Fallback to search params URL
@@ -754,7 +745,7 @@ export default function Home() {
 
         {/* RESULTS VIEW */}
         {showResults && currentRec && (
-          <div className="min-h-screen flex flex-col lg:flex-row relative z-20">
+          <div className="min-h-screen lg:flex lg:flex-row relative z-20">
             
             {/* Desktop: Sidebar on right */}
             <div className="hidden lg:flex flex-shrink-0 py-8 pr-8 pl-4 flex-col gap-3 overflow-y-auto carousel-scroll w-44 h-screen bg-transparent order-2">
@@ -778,12 +769,46 @@ export default function Home() {
               ))}
             </div>
 
+            {/* Mobile: Fixed compact tabs at bottom */}
+            <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-black/95 backdrop-blur border-t border-white/10">
+              <div className="flex">
+                {recommendations.map((rec, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      selectFilm(idx);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className={`flex-1 py-3 px-2 flex flex-col items-center gap-1 transition-all border-r border-white/5 last:border-r-0 ${
+                      idx === activeIndex 
+                        ? 'bg-white/10' 
+                        : 'bg-transparent'
+                    }`}
+                  >
+                    <span 
+                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                        idx === activeIndex 
+                          ? 'text-black' 
+                          : 'text-white/40 border border-white/20'
+                      }`}
+                      style={{ backgroundColor: idx === activeIndex ? 'var(--gold)' : 'transparent' }}
+                    >
+                      {idx + 1}
+                    </span>
+                    <span className={`text-[10px] text-center leading-tight line-clamp-2 ${idx === activeIndex ? 'text-white' : 'text-white/40'}`}>
+                      {rec.title}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Main Content Area */}
-            <div className="flex-1 flex flex-col order-1">
+            <div className="flex-1 flex flex-col order-1 pb-24 lg:pb-0">
               
-              {/* Background Image - Desktop only fixed, mobile scrolls */}
+              {/* Background Image */}
               {backdropUrl && (
-                <div className="absolute inset-0 lg:fixed lg:inset-0 lg:w-[calc(100%-11rem)]">
+                <div className="fixed inset-0 lg:w-[calc(100%-11rem)] -z-10">
                   <img
                     src={backdropUrl}
                     alt=""
@@ -931,48 +956,8 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Mobile Accordions */}
-                <div className="lg:hidden border-t border-white/10">
-                  {recommendations.map((rec, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => selectFilm(idx)}
-                      className={`w-full px-6 py-4 flex items-center justify-between border-b border-white/10 transition-all ${
-                        idx === activeIndex 
-                          ? 'bg-white/5' 
-                          : 'bg-transparent'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span 
-                          className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
-                            idx === activeIndex 
-                              ? 'text-black' 
-                              : 'text-white/50 border border-white/30'
-                          }`}
-                          style={{ backgroundColor: idx === activeIndex ? 'var(--gold)' : 'transparent' }}
-                        >
-                          {idx + 1}
-                        </span>
-                        <span className={`text-sm font-medium ${idx === activeIndex ? 'text-white' : 'text-white/50'}`}>
-                          {rec.title}
-                        </span>
-                      </div>
-                      <svg 
-                        className={`w-4 h-4 transition-transform ${idx === activeIndex ? 'rotate-180 text-white' : 'text-white/30'}`} 
-                        fill="none" 
-                        viewBox="0 0 24 24" 
-                        stroke="currentColor" 
-                        strokeWidth="2"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-                      </svg>
-                    </button>
-                  ))}
-                </div>
-
-                {/* Footer */}
-                <div className="px-6 py-4 border-t border-white/10">
+                {/* Footer - desktop only, mobile has fixed bottom */}
+                <div className="hidden lg:block px-6 py-4 border-t border-white/10">
                   <div className="flex items-center gap-4 text-white/40 text-xs">
                     <span>Film data from <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors text-white/50">TMDB</a></span>
                     <span>·</span>
