@@ -142,45 +142,95 @@ Curate thoughtfully:
 
     const result = JSON.parse(jsonMatch[0]);
 
+    // Helper function to search TMDB with different strategies
+    const searchTMDB = async (rec) => {
+      const searchType = rec.type === 'series' ? 'tv' : 'movie';
+      const year = rec.year;
+      
+      // Try multiple search strategies in order
+      const searchStrategies = [
+        rec.title,                                    // Just title
+        `${rec.title} ${year}`,                       // Title + year
+        rec.tmdb_query,                               // Claude's suggested query
+        rec.title.replace(/[:\-–—]/g, ' '),          // Title without punctuation
+      ].filter(Boolean);
+      
+      for (const query of searchStrategies) {
+        try {
+          // First try with year filter
+          let url = `https://api.themoviedb.org/3/search/${searchType}?query=${encodeURIComponent(query)}&include_adult=false&language=en-US&page=1`;
+          if (year && !query.includes(year)) {
+            url += `&year=${year}`;
+          }
+          
+          const response = await fetch(url, {
+            headers: {
+              Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.results && data.results.length > 0) {
+              // Try to find exact year match first
+              const exactMatch = data.results.find(m => {
+                const releaseYear = (m.release_date || m.first_air_date || '').split('-')[0];
+                return releaseYear === year;
+              });
+              return exactMatch || data.results[0];
+            }
+          }
+          
+          // If year filter returned nothing, try without year
+          if (year) {
+            const responseNoYear = await fetch(
+              `https://api.themoviedb.org/3/search/${searchType}?query=${encodeURIComponent(query)}&include_adult=false&language=en-US&page=1`,
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
+                  'Content-Type': 'application/json',
+                },
+              }
+            );
+            
+            if (responseNoYear.ok) {
+              const dataNoYear = await responseNoYear.json();
+              if (dataNoYear.results && dataNoYear.results.length > 0) {
+                return dataNoYear.results[0];
+              }
+            }
+          }
+        } catch (e) {
+          console.error(`TMDB search failed for "${query}":`, e);
+        }
+      }
+      
+      return null;
+    };
+
     // Fetch TMDB data for all recommendations IN PARALLEL (faster)
     const recommendationsWithData = await Promise.all(
       result.recommendations.map(async (rec) => {
         try {
-          const searchQuery = rec.tmdb_query || rec.title;
-          const tmdbResponse = await fetch(
-            `https://api.themoviedb.org/3/search/${rec.type === 'series' ? 'tv' : 'movie'}?query=${encodeURIComponent(searchQuery)}&include_adult=false&language=en-US&page=1`,
-            {
-              headers: {
-                Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
-                'Content-Type': 'application/json',
-              },
-            }
-          );
-
-          if (tmdbResponse.ok) {
-            const tmdbData = await tmdbResponse.json();
-            if (tmdbData.results && tmdbData.results.length > 0) {
-              const movie = tmdbData.results[0];
-              
-              // Generate review site links
-              const titleSlug = rec.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-              const encodedTitle = encodeURIComponent(rec.title);
-              
-              return {
-                ...rec,
-                poster_path: movie.poster_path,
-                backdrop_path: movie.backdrop_path,
-                tmdb_id: movie.id,
-                tmdb_rating: movie.vote_average ? movie.vote_average.toFixed(1) : null,
-                // Review site links
-                links: {
-                  imdb: `https://www.imdb.com/find/?q=${encodedTitle}`,
-                  rottenTomatoes: `https://www.rottentomatoes.com/search?search=${encodedTitle}`,
-                  letterboxd: `https://letterboxd.com/search/${encodedTitle}/`,
-                  justWatch: `https://www.justwatch.com/us/search?q=${encodedTitle}`,
-                }
-              };
-            }
+          const movie = await searchTMDB(rec);
+          
+          if (movie) {
+            const encodedTitle = encodeURIComponent(rec.title);
+            
+            return {
+              ...rec,
+              poster_path: movie.poster_path,
+              backdrop_path: movie.backdrop_path,
+              tmdb_id: movie.id,
+              tmdb_rating: movie.vote_average ? movie.vote_average.toFixed(1) : null,
+              links: {
+                imdb: `https://www.imdb.com/find/?q=${encodedTitle}`,
+                rottenTomatoes: `https://www.rottentomatoes.com/search?search=${encodedTitle}`,
+                letterboxd: `https://letterboxd.com/search/${encodedTitle}/`,
+                justWatch: `https://www.justwatch.com/us/search?q=${encodedTitle}`,
+              }
+            };
           }
         } catch (e) {
           console.error('TMDB fetch error:', e);

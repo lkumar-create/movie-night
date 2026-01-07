@@ -163,21 +163,12 @@ export default function Home() {
         return;
       }
       
-      // Get TMDB IDs for URL
+      // Use short URL format (just IDs) - cleaner and works great
       const ids = validRecs.map(rec => rec.tmdb_id).join(',');
-      
-      // Encode display data (why, trust, logline) - keeps the personalized recommendations
-      const displayData = validRecs.map(rec => ({
-        l: rec.logline?.substring(0, 200), // logline (truncated)
-        w: rec.why?.substring(0, 150),     // why
-        t: rec.trust?.substring(0, 100)    // trust signal
-      }));
-      
-      const encoded = encodeURIComponent(JSON.stringify(displayData));
-      const url = `https://thismovienight.com/s?ids=${ids}&d=${encoded}`;
+      const url = `https://thismovienight.com/s?ids=${ids}`;
       
       await navigator.clipboard.writeText(url);
-      alert('Link copied! Your friends will see the exact same recommendations.');
+      alert('Link copied!');
     } catch (err) {
       console.error('Share error:', err);
       alert('Could not copy link. Please try again.');
