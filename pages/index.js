@@ -144,8 +144,21 @@ export default function Home() {
       // Filter to only include recommendations with valid TMDB IDs
       const validRecs = recommendations.filter(rec => rec.tmdb_id);
       
+      console.log('Recommendations:', recommendations.map(r => ({ title: r.title, tmdb_id: r.tmdb_id })));
+      console.log('Valid recs with TMDB ID:', validRecs.length);
+      
       if (validRecs.length === 0) {
-        alert('Could not generate share link. Please try refreshing.');
+        // Fallback: use search params URL if no TMDB IDs
+        const params = new URLSearchParams();
+        if (selectedMoods.length > 0) params.set('mood', selectedMoods.join(','));
+        if (selectedWatch) params.set('watch', selectedWatch);
+        if (selectedLength) params.set('length', selectedLength);
+        if (customVibe.trim()) params.set('vibe', customVibe.trim());
+        if (badMovieMode) params.set('mode', 'bad');
+        
+        const fallbackUrl = `https://thismovienight.com/?${params.toString()}`;
+        await navigator.clipboard.writeText(fallbackUrl);
+        alert('Link copied! (Your friend will get similar recommendations based on the same search.)');
         setIsSharing(false);
         return;
       }
@@ -167,19 +180,7 @@ export default function Home() {
       alert('Link copied! Your friends will see the exact same recommendations.');
     } catch (err) {
       console.error('Share error:', err);
-      // Fallback - just IDs without display data
-      try {
-        const ids = recommendations.map(rec => rec.tmdb_id).filter(Boolean).join(',');
-        if (ids) {
-          const url = `https://thismovienight.com/s?ids=${ids}`;
-          await navigator.clipboard.writeText(url);
-          alert('Link copied!');
-        } else {
-          alert('Could not generate share link.');
-        }
-      } catch (e) {
-        alert('Could not copy link. Please try again.');
-      }
+      alert('Could not copy link. Please try again.');
     }
     
     setIsSharing(false);
