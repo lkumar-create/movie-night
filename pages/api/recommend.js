@@ -146,20 +146,37 @@ Curate thoughtfully:
     const searchTMDB = async (rec) => {
       const searchType = rec.type === 'series' ? 'tv' : 'movie';
       const year = rec.year;
+      const titleLower = rec.title.toLowerCase().trim();
+      
+      // Helper to check if title matches
+      const isTitleMatch = (result) => {
+        const resultTitle = (result.title || result.name || '').toLowerCase().trim();
+        // Exact match or very close
+        return resultTitle === titleLower || 
+               resultTitle.includes(titleLower) || 
+               titleLower.includes(resultTitle);
+      };
+      
+      // Helper to check year (allow 1 year difference for release date variations)
+      const isYearMatch = (result) => {
+        if (!year) return true;
+        const releaseYear = parseInt((result.release_date || result.first_air_date || '').split('-')[0]);
+        const targetYear = parseInt(year);
+        return Math.abs(releaseYear - targetYear) <= 1;
+      };
       
       // Try multiple search strategies in order
       const searchStrategies = [
         rec.title,                                    // Just title
-        `${rec.title} ${year}`,                       // Title + year
         rec.tmdb_query,                               // Claude's suggested query
         rec.title.replace(/[:\-–—]/g, ' '),          // Title without punctuation
       ].filter(Boolean);
       
       for (const query of searchStrategies) {
         try {
-          // First try with year filter
+          // Search with year filter first
           let url = `https://api.themoviedb.org/3/search/${searchType}?query=${encodeURIComponent(query)}&include_adult=false&language=en-US&page=1`;
-          if (year && !query.includes(year)) {
+          if (year) {
             url += `&year=${year}`;
           }
           
@@ -173,32 +190,34 @@ Curate thoughtfully:
           if (response.ok) {
             const data = await response.json();
             if (data.results && data.results.length > 0) {
-              // Try to find exact year match first
-              const exactMatch = data.results.find(m => {
-                const releaseYear = (m.release_date || m.first_air_date || '').split('-')[0];
-                return releaseYear === year;
-              });
-              return exactMatch || data.results[0];
+              // Find best match: title + year both match
+              const bestMatch = data.results.find(m => isTitleMatch(m) && isYearMatch(m));
+              if (bestMatch) return bestMatch;
+              
+              // If year filter was used and we got results, the first is likely correct
+              if (year && data.results[0] && isTitleMatch(data.results[0])) {
+                return data.results[0];
+              }
             }
           }
           
-          // If year filter returned nothing, try without year
-          if (year) {
-            const responseNoYear = await fetch(
-              `https://api.themoviedb.org/3/search/${searchType}?query=${encodeURIComponent(query)}&include_adult=false&language=en-US&page=1`,
-              {
-                headers: {
-                  Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
-                  'Content-Type': 'application/json',
-                },
-              }
-            );
-            
-            if (responseNoYear.ok) {
-              const dataNoYear = await responseNoYear.json();
-              if (dataNoYear.results && dataNoYear.results.length > 0) {
-                return dataNoYear.results[0];
-              }
+          // Try without year filter
+          const responseNoYear = await fetch(
+            `https://api.themoviedb.org/3/search/${searchType}?query=${encodeURIComponent(query)}&include_adult=false&language=en-US&page=1`,
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+          
+          if (responseNoYear.ok) {
+            const dataNoYear = await responseNoYear.json();
+            if (dataNoYear.results && dataNoYear.results.length > 0) {
+              // Must match both title and year
+              const match = dataNoYear.results.find(m => isTitleMatch(m) && isYearMatch(m));
+              if (match) return match;
             }
           }
         } catch (e) {

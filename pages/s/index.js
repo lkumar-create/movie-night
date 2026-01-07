@@ -74,7 +74,7 @@ export default function SharedByUrl() {
           return {
             ...movie,
             logline: dd.l || movie.overview || 'No description available.',
-            why: dd.w || 'A great film worth watching.',
+            why: dd.w || '',
             trust: dd.t || ''
           };
         });

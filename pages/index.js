@@ -144,7 +144,7 @@ export default function Home() {
       // Filter to only include recommendations with valid TMDB IDs
       const validRecs = recommendations.filter(rec => rec.tmdb_id);
       
-      console.log('Recommendations:', recommendations.map(r => ({ title: r.title, tmdb_id: r.tmdb_id })));
+      console.log('Recommendations:', recommendations.map(r => ({ title: r.title, tmdb_id: r.tmdb_id, type: r.type })));
       console.log('Valid recs with TMDB ID:', validRecs.length);
       
       if (validRecs.length === 0) {
@@ -163,8 +163,14 @@ export default function Home() {
         return;
       }
       
-      // Use short URL format (just IDs) - cleaner and works great
-      const ids = validRecs.map(rec => rec.tmdb_id).join(',');
+      // Build IDs with type prefix for TV shows: "tv:12345" vs just "12345" for movies
+      const ids = validRecs.map(rec => {
+        if (rec.type === 'series' || rec.type === 'tv') {
+          return `tv:${rec.tmdb_id}`;
+        }
+        return rec.tmdb_id;
+      }).join(',');
+      
       const url = `https://thismovienight.com/s?ids=${ids}`;
       
       await navigator.clipboard.writeText(url);
