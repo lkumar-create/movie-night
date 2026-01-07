@@ -35,20 +35,12 @@ export default function SharedByUrl() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Fetch movie details from TMDB
+  // Fetch movie details from our API
   useEffect(() => {
     if (!ids) return;
 
     const fetchMovies = async () => {
       try {
-        const idList = ids.split(',').map(id => id.trim()).filter(Boolean);
-        
-        if (idList.length === 0) {
-          setError('No movies specified.');
-          setIsLoading(false);
-          return;
-        }
-
         // Parse display data if provided
         let displayData = [];
         if (d) {
@@ -59,52 +51,33 @@ export default function SharedByUrl() {
           }
         }
 
-        // Fetch each movie from TMDB
-        const TMDB_API_KEY = '2aa266e462e73f31d49cce3017e105e4';
+        // Fetch movies from our API (which uses TMDB)
+        const response = await fetch(`/api/movies?ids=${ids}`);
         
-        const moviePromises = idList.map(async (tmdbId, idx) => {
-          const res = await fetch(
-            `https://api.tmdb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=credits`
-          );
-          
-          if (!res.ok) return null;
-          
-          const movie = await res.json();
-          const director = movie.credits?.crew?.find(c => c.job === 'Director')?.name || 'Unknown';
-          const runtime = movie.runtime ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m` : 'Unknown';
-          const genres = movie.genres?.map(g => g.name).slice(0, 2).join(' / ') || 'Film';
-          
-          // Use display data if available
-          const dd = displayData[idx] || {};
-          
-          return {
-            title: movie.title,
-            year: movie.release_date?.split('-')[0] || 'Unknown',
-            director,
-            genre: genres,
-            runtime,
-            logline: dd.l || movie.overview || 'No description available.',
-            why: dd.w || 'A great film worth watching.',
-            trust: dd.t || '',
-            tmdb_id: movie.id,
-            poster_path: movie.poster_path,
-            backdrop_path: movie.backdrop_path,
-            links: {
-              imdb: `https://www.imdb.com/title/${movie.imdb_id || ''}`,
-              rottenTomatoes: `https://www.rottentomatoes.com/search?search=${encodeURIComponent(movie.title)}`,
-              letterboxd: `https://letterboxd.com/search/${encodeURIComponent(movie.title)}/`,
-              justWatch: `https://www.justwatch.com/us/search?q=${encodeURIComponent(movie.title)}`
-            }
-          };
-        });
-
-        const movies = (await Promise.all(moviePromises)).filter(Boolean);
-        
-        if (movies.length === 0) {
+        if (!response.ok) {
           setError('Could not load the shared movies.');
           setIsLoading(false);
           return;
         }
+
+        const data = await response.json();
+        
+        if (!data.movies || data.movies.length === 0) {
+          setError('Could not load the shared movies.');
+          setIsLoading(false);
+          return;
+        }
+
+        // Merge with display data if available
+        const movies = data.movies.map((movie, idx) => {
+          const dd = displayData[idx] || {};
+          return {
+            ...movie,
+            logline: dd.l || movie.overview || 'No description available.',
+            why: dd.w || 'A great film worth watching.',
+            trust: dd.t || ''
+          };
+        });
 
         setRecommendations(movies);
         setIsLoading(false);

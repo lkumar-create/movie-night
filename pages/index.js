@@ -141,11 +141,20 @@ export default function Home() {
     setIsSharing(true);
     
     try {
+      // Filter to only include recommendations with valid TMDB IDs
+      const validRecs = recommendations.filter(rec => rec.tmdb_id);
+      
+      if (validRecs.length === 0) {
+        alert('Could not generate share link. Please try refreshing.');
+        setIsSharing(false);
+        return;
+      }
+      
       // Get TMDB IDs for URL
-      const ids = recommendations.map(rec => rec.tmdb_id).filter(Boolean).join(',');
+      const ids = validRecs.map(rec => rec.tmdb_id).join(',');
       
       // Encode display data (why, trust, logline) - keeps the personalized recommendations
-      const displayData = recommendations.map(rec => ({
+      const displayData = validRecs.map(rec => ({
         l: rec.logline?.substring(0, 200), // logline (truncated)
         w: rec.why?.substring(0, 150),     // why
         t: rec.trust?.substring(0, 100)    // trust signal
@@ -161,9 +170,13 @@ export default function Home() {
       // Fallback - just IDs without display data
       try {
         const ids = recommendations.map(rec => rec.tmdb_id).filter(Boolean).join(',');
-        const url = `https://thismovienight.com/s?ids=${ids}`;
-        await navigator.clipboard.writeText(url);
-        alert('Link copied!');
+        if (ids) {
+          const url = `https://thismovienight.com/s?ids=${ids}`;
+          await navigator.clipboard.writeText(url);
+          alert('Link copied!');
+        } else {
+          alert('Could not generate share link.');
+        }
       } catch (e) {
         alert('Could not copy link. Please try again.');
       }
