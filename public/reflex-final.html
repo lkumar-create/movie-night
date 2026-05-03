@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0D0D0D">
+<title>REFLEX — Driving Scene Trainer</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --klein: #002FA7; --acid: #F5E642; --ink: #0D0D0D;
+  --white: #FFFFFF; --red: #FF3A1F; --green: #00C96A;
+}
+*,*::before,*::after { margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent; }
+html { height:100%; touch-action:manipulation; }
+body {
+  height:100%; min-height:100dvh; background:var(--ink); color:var(--white);
+  font-family:'DM Mono',monospace; -webkit-font-smoothing:antialiased;
+  overscroll-behavior:none;
+}
+body::after {
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:9999;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity:0.04;
+}
+
+/* SCREENS */
+.screen { position:fixed;inset:0;display:none;flex-direction:column;overflow:hidden; }
+.screen.active { display:flex; }
+
+/* OVERLAYS */
+.flash { position:fixed;inset:0;pointer-events:none;z-index:500; }
+.flash.go  { animation:fGo  .4s ease-out forwards; }
+.flash.bad { animation:fBad .4s ease-out forwards; }
+@keyframes fGo  { 0%{background:rgba(0,201,106,.25);opacity:1}100%{opacity:0} }
+@keyframes fBad { 0%{background:rgba(255,58,31,.25);opacity:1}100%{opacity:0} }
+.pop {
+  position:fixed;top:42%;left:50%;transform:translate(-50%,-50%) scale(.4);
+  font-family:'Bebas Neue';font-size:clamp(52px,16vw,84px);letter-spacing:.1em;
+  pointer-events:none;z-index:600;opacity:0;
+}
+.pop.show { animation:popAnim .5s cubic-bezier(.34,1.56,.64,1) forwards; }
+.pop.ok { color:var(--green); } .pop.bad { color:var(--red); }
+@keyframes popAnim {
+  0%  { transform:translate(-50%,-50%) scale(.4);opacity:1; }
+  60% { transform:translate(-50%,-50%) scale(1.1);opacity:1; }
+  100%{ transform:translate(-50%,-65%) scale(1);opacity:0; }
+}
+
+/* ── INTRO ── */
+#intro {
+  align-items:center;justify-content:center;gap:0;
+  padding:max(20px,env(safe-area-inset-top)) 20px max(20px,env(safe-area-inset-bottom));
+  overflow-y:auto;
+}
+.intro-mark { font-family:'Bebas Neue';font-size:clamp(80px,22vw,148px);letter-spacing:.06em;line-height:.85;text-align:center; }
+.intro-sub { font-family:'Bebas Neue';font-size:clamp(15px,4.5vw,28px);background:var(--acid);color:var(--ink);padding:3px 18px;letter-spacing:.18em;margin-top:6px; }
+.intro-body { font-size:clamp(9px,2.4vw,11px);color:#555;letter-spacing:.1em;text-transform:uppercase;margin:16px 0 20px;text-align:center;max-width:300px;line-height:2; }
+.mode-row { display:grid;grid-template-columns:1fr 1fr;gap:10px;width:min(420px,92vw);margin-bottom:14px; }
+.mcard {
+  background:transparent;border:1px solid #222;color:var(--white);
+  font-family:'DM Mono',monospace;font-size:clamp(9px,2.2vw,10px);
+  letter-spacing:.06em;text-transform:uppercase;
+  padding:clamp(12px,3vw,16px) 12px;cursor:pointer;text-align:left;
+  transition:all .15s;line-height:1.6;min-height:88px;
+}
+.mcard:active { background:#060618;border-color:var(--klein); }
+@media(hover:hover){.mcard:hover{border-color:var(--klein);background:#060618;}}
+.mcard.sel { border-color:var(--acid);background:#0a0a20; }
+.mcard-icon { font-size:20px;display:block;margin-bottom:5px; }
+.mcard-name { font-family:'Bebas Neue';font-size:clamp(16px,4vw,20px);letter-spacing:.1em;display:block; }
+.go-btn {
+  background:var(--acid);color:var(--ink);border:none;
+  font-family:'Bebas Neue';font-size:clamp(20px,5vw,26px);letter-spacing:.2em;
+  padding:16px 0;cursor:pointer;transition:all .12s;
+  width:min(420px,92vw);min-height:56px;
+}
+.go-btn:active { background:var(--white);transform:scale(.98); }
+@media(hover:hover){.go-btn:hover{background:var(--white);}}
+
+/* ── HUD ── */
+.hud {
+  display:flex;align-items:center;
+  padding:8px 16px;padding-top:max(8px,env(safe-area-inset-top));
+  border-bottom:1px solid #1a1a1a;background:#050505;flex-shrink:0;z-index:10;gap:8px;
+}
+.hud-col { text-align:center;min-width:44px;flex-shrink:0; }
+.hud-label { font-size:7px;letter-spacing:.2em;text-transform:uppercase;color:#444; }
+.hud-val { font-family:'Bebas Neue';font-size:clamp(22px,6vw,28px);line-height:1.1;color:var(--white); }
+.hud-val.acid { color:var(--acid); } .hud-val.blue { color:#4d7fff; }
+.hud-progress { flex:1;display:flex;flex-direction:column;gap:5px;min-width:0; }
+.progress-dots { display:flex;gap:3px;justify-content:center;flex-wrap:wrap; }
+.dot { width:6px;height:6px;border-radius:50%;background:#222;transition:background .3s;flex-shrink:0; }
+.dot.done-correct { background:var(--green); }
+.dot.done-wrong   { background:var(--red); }
+.dot.current { background:var(--acid);animation:pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.35} }
+.timer-track { height:3px;background:#1a1a1a;overflow:hidden;border-radius:2px; }
+.timer-fill { height:100%;background:var(--acid);transition:width linear,background .3s; }
+
+/* ── SCENE WRAP ── */
+.scene-wrap {
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  padding:14px 12px;
+  padding-bottom:max(90px,calc(env(safe-area-inset-bottom) + 90px));
+  gap:12px;
+}
+
+/* Road scene */
+.road-scene {
+  width:100%;max-width:560px;flex-shrink:0;
+  background:#1e1e1e;border:1px solid #2a2a2a;position:relative;
+  min-height:clamp(120px,28vw,175px);border-radius:2px;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+}
+.road-stripe {
+  position:absolute;left:50%;transform:translateX(-50%);
+  top:0;bottom:0;width:4px;opacity:.3;
+  background:repeating-linear-gradient(to bottom,#F5E642 0,#F5E642 18px,transparent 18px,transparent 36px);
+}
+.signs-row {
+  position:relative;z-index:2;display:flex;align-items:flex-end;justify-content:center;
+  gap:clamp(6px,3vw,28px);padding:clamp(12px,3vw,20px) 10px clamp(6px,2vw,12px);
+  flex-wrap:wrap;width:100%;
+}
+.sign-post-wrap {
+  display:flex;flex-direction:column;align-items:center;
+  animation:signDrop .35s cubic-bezier(.34,1.2,.64,1) both;
+}
+.sign-post-wrap:nth-child(2){animation-delay:.06s;}
+.sign-post-wrap:nth-child(3){animation-delay:.12s;}
+.sign-post-wrap:nth-child(4){animation-delay:.18s;}
+@keyframes signDrop{from{transform:translateY(-14px) scale(.88);opacity:0}to{transform:none;opacity:1}}
+.sign-img { display:block; }
+.post { width:3px;height:clamp(14px,3vw,24px);background:linear-gradient(to bottom,#888,#444); }
+
+/* Scale down signs on very small screens */
+@media(max-width:380px){
+  .sign-img { transform:scale(.72);transform-origin:bottom center; }
+  .sign-post-wrap { margin-bottom:-10px; }
+}
+@media(min-width:381px) and (max-width:440px){
+  .sign-img { transform:scale(.84);transform-origin:bottom center; }
+  .sign-post-wrap { margin-bottom:-6px; }
+}
+
+/* Question */
+.question-sub { font-size:8px;color:#3a3a3a;letter-spacing:.2em;text-transform:uppercase;text-align:center;flex-shrink:0; }
+.question-text {
+  font-family:'Playfair Display',serif;font-size:clamp(15px,4.2vw,20px);
+  font-weight:700;text-align:center;max-width:540px;line-height:1.45;color:var(--white);flex-shrink:0;
+}
+.question-text em { color:var(--acid);font-style:normal; }
+
+/* Choices — always 1 col on mobile, 2 col on wider */
+.choices { display:grid;gap:8px;width:100%;max-width:560px;grid-template-columns:1fr;flex-shrink:0; }
+@media(min-width:500px){ .choices:not(.single-col) { grid-template-columns:1fr 1fr; } }
+
+.choice {
+  background:#0f0f0f;border:1px solid #252525;color:var(--white);
+  font-family:'DM Mono',monospace;font-size:clamp(12px,3vw,13px);letter-spacing:.03em;
+  padding:clamp(13px,3.5vw,17px) 14px;cursor:pointer;text-align:left;line-height:1.55;
+  transition:border-color .1s,background .1s;min-height:52px;
+  display:flex;align-items:center;
+}
+.choice:active:not(:disabled) { background:#0a0a1e;border-color:var(--klein); }
+@media(hover:hover){.choice:hover:not(:disabled){background:#0a0a1e;border-color:var(--klein);}}
+.choice.correct { background:rgba(0,201,106,.1)!important;border-color:var(--green)!important;color:var(--green)!important; }
+.choice.wrong   { background:rgba(255,58,31,.1)!important;border-color:var(--red)!important;color:var(--red)!important; }
+.choice.show    { border-color:#252525!important;color:#3a3a3a!important; }
+.choice-key {
+  display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;flex-shrink:0;
+  background:#1e1e1e;font-size:9px;border-radius:2px;margin-right:10px;letter-spacing:0;
+}
+
+/* Explanation */
+.explain {
+  background:#060610;border:1px solid #12122e;border-left:3px solid var(--klein);
+  padding:12px 14px;max-width:560px;width:100%;
+  font-size:clamp(11px,2.8vw,12px);line-height:1.85;color:#888;
+  display:none;flex-shrink:0;
+}
+.explain.show { display:block;animation:fadeUp .3s ease both; }
+.explain strong { color:var(--acid);font-weight:500; }
+@keyframes fadeUp{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+
+/* Fixed NEXT button at bottom */
+.next-footer {
+  position:fixed;bottom:0;left:0;right:0;
+  padding:10px 16px;padding-bottom:max(10px,env(safe-area-inset-bottom));
+  background:#050505;border-top:1px solid #1a1a1a;
+  display:none;z-index:50;
+}
+.next-footer.show { display:block; }
+.next-footer button {
+  width:100%;background:var(--acid);color:var(--ink);
+  border:none;font-family:'Bebas Neue';font-size:clamp(18px,5vw,22px);
+  letter-spacing:.2em;padding:14px;cursor:pointer;
+  transition:background .1s;min-height:50px;
+}
+.next-footer button:active { background:var(--white); }
+@media(hover:hover){.next-footer button:hover{background:var(--white);}}
+
+/* ── RESULTS ── */
+#results {
+  align-items:center;justify-content:center;gap:0;
+  padding:max(24px,env(safe-area-inset-top)) 20px max(24px,env(safe-area-inset-bottom));
+  overflow-y:auto;
+}
+.res-title { font-family:'Bebas Neue';font-size:clamp(38px,11vw,74px);letter-spacing:.08em;line-height:.9;text-align:center; }
+.res-title span { color:var(--acid); }
+.res-score { font-family:'Bebas Neue';font-size:clamp(56px,17vw,108px);line-height:1;text-align:center;margin-top:10px; }
+.res-score em { color:var(--acid);font-style:normal; }
+.res-bar { width:min(300px,86vw);height:3px;background:#1a1a1a;margin:14px auto 0; }
+.res-fill { height:100%;background:var(--acid);transition:width 1s ease .4s; }
+.res-verdict { font-family:'Playfair Display',serif;font-size:clamp(13px,3.5vw,17px);font-weight:700;text-align:center;max-width:340px;color:var(--white);margin-top:18px;line-height:1.5; }
+.res-stats { font-size:10px;color:#444;letter-spacing:.1em;text-align:center;margin-top:8px; }
+.replay { background:var(--acid);color:var(--ink);border:none;font-family:'Bebas Neue';font-size:clamp(18px,5vw,22px);letter-spacing:.2em;padding:15px 48px;cursor:pointer;transition:all .12s;margin-top:24px;min-height:52px; }
+.replay:active { background:var(--white); }
+@media(hover:hover){.replay:hover{background:var(--white);}}
+.home-link { background:transparent;color:#333;border:1px solid #1a1a1a;font-family:'DM Mono';font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:12px 28px;cursor:pointer;transition:all .12s;margin-top:12px;min-height:44px; }
+.home-link:active { color:#888;border-color:#444; }
+</style>
+</head>
+<body>
+
+<div class="flash" id="flash"></div>
+<div class="pop" id="pop"></div>
+
+<!-- INTRO -->
+<div class="screen active" id="intro">
+  <div class="intro-mark">REFLEX</div>
+  <div class="intro-sub">SCENE TRAINER</div>
+  <p class="intro-body">Read the full sign cluster.<br>React before the clock does.</p>
+  <div class="mode-row">
+    <button class="mcard sel" onclick="setMode('all',this)">
+      <span class="mcard-icon">🛣️</span><span class="mcard-name">Full Mix</span>All scene types
+    </button>
+    <button class="mcard" onclick="setMode('intersect',this)">
+      <span class="mcard-icon">✋</span><span class="mcard-name">Intersection</span>Stop, yield, lights
+    </button>
+    <button class="mcard" onclick="setMode('highway',this)">
+      <span class="mcard-icon">⚡</span><span class="mcard-name">Highway</span>Speed, merge, pass
+    </button>
+    <button class="mcard" onclick="setMode('zone',this)">
+      <span class="mcard-icon">🏘️</span><span class="mcard-name">Zone Reads</span>School, work, park
+    </button>
+  </div>
+  <button class="go-btn" onclick="startQuiz()">START SESSION →</button>
+</div>
+
+<!-- QUIZ -->
+<div class="screen" id="quiz">
+  <div class="hud">
+    <div class="hud-col">
+      <div class="hud-label">Score</div>
+      <div class="hud-val acid" id="hScore">0</div>
+    </div>
+    <div class="hud-progress">
+      <div class="progress-dots" id="dots"></div>
+      <div class="timer-track"><div class="timer-fill" id="timerFill"></div></div>
+    </div>
+    <div class="hud-col">
+      <div class="hud-label">Streak</div>
+      <div class="hud-val blue" id="hStreak">0</div>
+    </div>
+  </div>
+  <div class="scene-wrap" id="sceneWrap"></div>
+  <div class="next-footer" id="nextFooter">
+    <button onclick="advance()">NEXT SCENE →</button>
+  </div>
+</div>
+
+<!-- RESULTS -->
+<div class="screen" id="results">
+  <div class="res-title">SESSION<br><span>COMPLETE</span></div>
+  <div class="res-score" id="rScore">—</div>
+  <div class="res-bar"><div class="res-fill" id="rFill" style="width:0"></div></div>
+  <div class="res-verdict" id="rVerdict"></div>
+  <div class="res-stats" id="rStats"></div>
+  <button class="replay" onclick="startQuiz()">TRAIN AGAIN</button>
+  <button class="home-link" onclick="goHome()">← Change mode</button>
+</div>
+
+<script>
+const S = {
+  // Regulatory — Octagonal
+  stop: (w=90) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 100 100">
+    <polygon points="29,4 71,4 96,29 96,71 71,96 29,96 4,71 4,29" fill="#BD0000" stroke="white" stroke-width="3.5"/>
+    <polygon points="29,4 71,4 96,29 96,71 71,96 29,96 4,71 4,29" fill="none" stroke="white" stroke-width="1.5" transform="translate(50,50) scale(0.86) translate(-50,-50)"/>
+    <text x="50" y="61" font-family="'Highway Gothic','Arial Black',sans-serif" font-weight="900" font-size="18" fill="white" text-anchor="middle" letter-spacing="2.5">STOP</text>
+  </svg>`,
+
+  // Regulatory — Triangle (inverted)
+  yield: (w=90) => `<svg class="sign-img" width="${w}" height="${Math.round(w*0.87)}" viewBox="0 0 100 87">
+    <polygon points="50,3 97,84 3,84" fill="white" stroke="#BD0000" stroke-width="5"/>
+    <polygon points="50,13 90,81 10,81" fill="none" stroke="#BD0000" stroke-width="3"/>
+    <text x="50" y="73" font-family="'Highway Gothic','Arial Black',sans-serif" font-weight="900" font-size="15" fill="#BD0000" text-anchor="middle" letter-spacing="1">YIELD</text>
+  </svg>`,
+
+  // Speed Limit — White rectangle
+  speed: (n, w=72) => `<svg class="sign-img" width="${w}" height="${Math.round(w*1.3)}" viewBox="0 0 72 94">
+    <rect x="2" y="2" width="68" height="90" rx="4" fill="white" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="6" y="6" width="60" height="82" rx="2" fill="white" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="36" y="28" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="9.5" fill="#1a1a1a" text-anchor="middle" letter-spacing="0.5" font-weight="700">SPEED</text>
+    <text x="36" y="40" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="9.5" fill="#1a1a1a" text-anchor="middle" letter-spacing="0.5" font-weight="700">LIMIT</text>
+    <text x="36" y="82" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="44" fill="#1a1a1a" text-anchor="middle" font-weight="900">${n}</text>
+  </svg>`,
+
+  // Do Not Enter — Red circle white bar
+  noEntry: (w=80) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 80 80">
+    <circle cx="40" cy="40" r="38" fill="#BD0000" stroke="white" stroke-width="3"/>
+    <circle cx="40" cy="40" r="38" fill="none" stroke="white" stroke-width="1.5" r="32"/>
+    <rect x="12" y="33" width="56" height="14" rx="2" fill="white"/>
+    <text x="40" y="43.5" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="8" fill="#BD0000" text-anchor="middle" font-weight="900" letter-spacing="0.5">DO NOT ENTER</text>
+  </svg>`,
+
+  // One Way
+  oneWay: (w=100) => `<svg class="sign-img" width="${w}" height="${Math.round(w*0.38)}" viewBox="0 0 120 46">
+    <rect x="0" y="0" width="120" height="46" fill="#1a1a1a"/>
+    <text x="60" y="30" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="18" fill="white" text-anchor="middle" font-weight="900" letter-spacing="3">ONE WAY</text>
+    <polygon points="108,23 94,14 94,19 78,19 78,27 94,27 94,32" fill="white"/>
+  </svg>`,
+
+  // Wrong Way
+  wrongWay: (w=100) => `<svg class="sign-img" width="${w}" height="${Math.round(w*0.38)}" viewBox="0 0 120 46">
+    <rect x="0" y="0" width="120" height="46" fill="#BD0000"/>
+    <text x="60" y="30" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="16" fill="white" text-anchor="middle" font-weight="900" letter-spacing="2">WRONG WAY</text>
+  </svg>`,
+
+  // No Turn on Red
+  noTurnRed: (w=80) => `<svg class="sign-img" width="${w}" height="${Math.round(w*1.05)}" viewBox="0 0 80 84">
+    <rect x="2" y="2" width="76" height="80" rx="4" fill="white" stroke="#aaa" stroke-width="1.5"/>
+    <circle cx="40" cy="34" r="22" fill="none" stroke="#BD0000" stroke-width="5"/>
+    <line x1="24" y1="18" x2="56" y2="50" stroke="#BD0000" stroke-width="5"/>
+    <path d="M34,20 Q40,12 48,20 L48,28 L52,22 L40,34 L28,22 L32,28 Z" fill="#1a1a1a"/>
+    <text x="40" y="70" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="7.5" fill="#BD0000" text-anchor="middle" font-weight="900" letter-spacing="0.3">NO TURN ON RED</text>
+  </svg>`,
+
+  // No Left Turn
+  noLeftTurn: (w=80) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 80 80">
+    <rect x="2" y="2" width="76" height="76" rx="4" fill="white" stroke="#aaa" stroke-width="1.5"/>
+    <circle cx="40" cy="40" r="30" fill="none" stroke="#BD0000" stroke-width="5"/>
+    <line x1="16" y1="16" x2="64" y2="64" stroke="#BD0000" stroke-width="5"/>
+    <path d="M28,48 L28,36 Q28,24 40,24 L52,24" stroke="#1a1a1a" stroke-width="4" fill="none"/>
+    <polygon points="24,38 32,26 36,38" fill="#1a1a1a"/>
+  </svg>`,
+
+  // No Parking
+  noPark: (w=72) => `<svg class="sign-img" width="${w}" height="${Math.round(w*1.35)}" viewBox="0 0 72 97">
+    <rect x="2" y="2" width="68" height="93" rx="4" fill="white" stroke="#BD0000" stroke-width="2.5"/>
+    <text x="36" y="8" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="6" fill="#BD0000" text-anchor="middle" dy="8" font-weight="900" letter-spacing="0.5">NO PARKING</text>
+    <line x1="10" y1="50" x2="62" y2="50" stroke="#BD0000" stroke-width="3"/>
+    <polygon points="7,44 7,56 2,50" fill="#BD0000"/>
+    <polygon points="65,44 65,56 70,50" fill="#BD0000"/>
+    <text x="36" y="84" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="7" fill="#BD0000" text-anchor="middle" font-weight="900">ANY TIME</text>
+  </svg>`,
+
+  // Warning Diamond — generic
+  warn: (label, w=82) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 82 82">
+    <rect x="11" y="11" width="60" height="60" rx="3" fill="#F5CD00" stroke="black" stroke-width="2.5" transform="rotate(45 41 41)"/>
+    <text x="41" y="46" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="${label.length > 8 ? 7 : 9}" fill="#1a1a1a" text-anchor="middle" font-weight="900" letter-spacing="0.3">${label}</text>
+  </svg>`,
+
+  // Warning — Pedestrian
+  pedXing: (w=82) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 82 82">
+    <rect x="11" y="11" width="60" height="60" rx="3" fill="#F5CD00" stroke="black" stroke-width="2.5" transform="rotate(45 41 41)"/>
+    <circle cx="41" cy="27" r="5" fill="#1a1a1a"/>
+    <path d="M41,32 L37,48 M41,32 L45,48 M37,40 L45,40 M37,48 L34,58 M45,48 L48,58" stroke="#1a1a1a" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  </svg>`,
+
+  // Warning — School Crossing (fluorescent)
+  school: (w=82) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 82 82">
+    <rect x="11" y="11" width="60" height="60" rx="3" fill="#bad80a" stroke="black" stroke-width="2.5" transform="rotate(45 41 41)"/>
+    <text x="41" y="38" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="7.5" fill="#1a1a1a" text-anchor="middle" font-weight="900">SCHOOL</text>
+    <text x="41" y="48" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="7.5" fill="#1a1a1a" text-anchor="middle" font-weight="900">CROSSING</text>
+  </svg>`,
+
+  // Warning — Railroad Crossing
+  railroad: (w=90) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 90 90">
+    <circle cx="45" cy="45" r="42" fill="#F5CD00" stroke="black" stroke-width="3"/>
+    <circle cx="45" cy="45" r="42" fill="none" stroke="black" stroke-width="1.5" r="37"/>
+    <line x1="45" y1="8" x2="45" y2="82" stroke="black" stroke-width="7"/>
+    <line x1="8" y1="45" x2="82" y2="45" stroke="black" stroke-width="7"/>
+    <text x="45" y="32" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="12" fill="black" text-anchor="middle" font-weight="900">R</text>
+    <text x="45" y="62" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="12" fill="black" text-anchor="middle" font-weight="900">R</text>
+    <text x="22" y="52" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="12" fill="black" text-anchor="middle" font-weight="900">R</text>
+    <text x="68" y="52" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="12" fill="black" text-anchor="middle" font-weight="900">R</text>
+  </svg>`,
+
+  // Traffic light — red/yellow/green state
+  light: (state='green', w=55) => {
+    const h = Math.round(w * 2.1);
+    const r = state==='red' ? '#CC0000':'#2a0000';
+    const y = state==='yellow' ? '#DDAA00':'#2a2000';
+    const g = state==='green' ? '#00BB44':'#002200';
+    const glow = state==='green'?'drop-shadow(0 0 6px #00CC44)':state==='yellow'?'drop-shadow(0 0 6px #DDAA00)':'drop-shadow(0 0 6px #CC0000)';
+    return `<svg class="sign-img" width="${w}" height="${h}" viewBox="0 0 55 116" style="filter:${glow}">
+      <rect x="8" y="4" width="39" height="108" rx="6" fill="#111" stroke="#333" stroke-width="1.5"/>
+      <circle cx="27" cy="26" r="14" fill="${r}"/>
+      <circle cx="27" cy="58" r="14" fill="${y}"/>
+      <circle cx="27" cy="90" r="14" fill="${g}"/>
+      ${state==='red'?'<circle cx="27" cy="26" r="8" fill="#FF4444" opacity=".6"/>':''}
+      ${state==='yellow'?'<circle cx="27" cy="58" r="8" fill="#FFD040" opacity=".6"/>':''}
+      ${state==='green'?'<circle cx="27" cy="90" r="8" fill="#44EE66" opacity=".6"/>':''}
+    </svg>`;
+  },
+
+  // Speed zone ahead (warning)
+  speedZoneAhead: (w=82) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 82 82">
+    <rect x="11" y="11" width="60" height="60" rx="3" fill="#F5CD00" stroke="black" stroke-width="2.5" transform="rotate(45 41 41)"/>
+    <text x="41" y="38" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="6.5" fill="#1a1a1a" text-anchor="middle" font-weight="900">SPEED</text>
+    <text x="41" y="46" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="6.5" fill="#1a1a1a" text-anchor="middle" font-weight="900">ZONE</text>
+    <text x="41" y="54" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="6.5" fill="#1a1a1a" text-anchor="middle" font-weight="900">AHEAD</text>
+  </svg>`,
+
+  // Do Not Pass
+  doNotPass: (w=82) => `<svg class="sign-img" width="${w}" height="${Math.round(w*0.65)}" viewBox="0 0 100 65">
+    <rect x="2" y="2" width="96" height="61" rx="4" fill="white" stroke="#1a1a1a" stroke-width="2"/>
+    <line x1="2" y1="32" x2="98" y2="32" stroke="#F5CD00" stroke-width="7"/>
+    <line x1="2" y1="38" x2="98" y2="38" stroke="#1a1a1a" stroke-width="4"/>
+    <text x="50" y="20" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="9" fill="#1a1a1a" text-anchor="middle" font-weight="900" letter-spacing="0.5">DO NOT PASS</text>
+    <text x="50" y="56" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="8" fill="#1a1a1a" text-anchor="middle" font-weight="700">BEGIN PASS ZONE →</text>
+  </svg>`,
+
+  // Work Zone speed
+  workZone: (n, w=72) => `<svg class="sign-img" width="${w}" height="${Math.round(w*1.45)}" viewBox="0 0 72 105">
+    <rect x="2" y="2" width="68" height="101" rx="4" fill="#FF6A00" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="6" y="6" width="60" height="93" rx="2" fill="#FF6A00" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="36" y="22" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="8" fill="black" text-anchor="middle" font-weight="900" letter-spacing="0.3">SPEED</text>
+    <text x="36" y="33" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="8" fill="black" text-anchor="middle" font-weight="900" letter-spacing="0.3">LIMIT</text>
+    <text x="36" y="75" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="44" fill="black" text-anchor="middle" font-weight="900">${n}</text>
+    <text x="36" y="96" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="7.5" fill="black" text-anchor="middle" font-weight="900">WORK ZONE</text>
+  </svg>`,
+
+  // Fines Doubled plaque
+  finesDoubled: (w=90) => `<svg class="sign-img" width="${w}" height="${Math.round(w*0.35)}" viewBox="0 0 110 38">
+    <rect x="2" y="2" width="106" height="34" rx="3" fill="white" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="55" y="24" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="11" fill="#BD0000" text-anchor="middle" font-weight="900" letter-spacing="0.5">FINES DOUBLED</text>
+  </svg>`,
+
+  // School Speed Limit
+  schoolSpeed: (n, w=72) => `<svg class="sign-img" width="${w}" height="${Math.round(w*1.45)}" viewBox="0 0 72 105">
+    <rect x="2" y="2" width="68" height="101" rx="4" fill="#bad80a" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="6" y="6" width="60" height="93" rx="2" fill="#bad80a" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="36" y="22" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="7" fill="black" text-anchor="middle" font-weight="900">SCHOOL</text>
+    <text x="36" y="32" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="7" fill="black" text-anchor="middle" font-weight="900">SPEED LIMIT</text>
+    <text x="36" y="75" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="44" fill="black" text-anchor="middle" font-weight="900">${n}</text>
+    <text x="36" y="96" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="7" fill="black" text-anchor="middle" font-weight="900">WHEN CHILDREN</text>
+  </svg>`,
+
+  // 4-Way plaque (below stop)
+  fourWay: (w=72) => `<svg class="sign-img" width="${w}" height="${Math.round(w*0.34)}" viewBox="0 0 72 24">
+    <rect x="2" y="2" width="68" height="20" rx="2" fill="white" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="36" y="15.5" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="9" fill="#1a1a1a" text-anchor="middle" font-weight="900" letter-spacing="1">4 WAY</text>
+  </svg>`,
+
+  // All Way plaque
+  allWay: (w=72) => `<svg class="sign-img" width="${w}" height="${Math.round(w*0.34)}" viewBox="0 0 72 24">
+    <rect x="2" y="2" width="68" height="20" rx="2" fill="white" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="36" y="15.5" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="9" fill="#1a1a1a" text-anchor="middle" font-weight="900" letter-spacing="1">ALL WAY</text>
+  </svg>`,
+
+  // Right Lane Ends
+  rightLaneEnds: (w=82) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 82 82">
+    <rect x="11" y="11" width="60" height="60" rx="3" fill="#F5CD00" stroke="black" stroke-width="2.5" transform="rotate(45 41 41)"/>
+    <line x1="34" y1="60" x2="34" y2="30" stroke="black" stroke-width="3"/>
+    <line x1="50" y1="60" x2="50" y2="42" stroke="black" stroke-width="3"/>
+    <path d="M50,42 Q50,30 34,30" stroke="black" stroke-width="3" fill="none"/>
+    <polygon points="30,32 34,22 38,32" fill="black"/>
+  </svg>`,
+
+  // Merge Left
+  mergeLeft: (w=82) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 82 82">
+    <rect x="11" y="11" width="60" height="60" rx="3" fill="#F5CD00" stroke="black" stroke-width="2.5" transform="rotate(45 41 41)"/>
+    <line x1="41" y1="62" x2="41" y2="22" stroke="black" stroke-width="3"/>
+    <line x1="56" y1="62" x2="56" y2="42" stroke="black" stroke-width="3"/>
+    <path d="M56,42 Q56,22 41,22" stroke="black" stroke-width="3" fill="none"/>
+    <polygon points="37,24 41,14 45,24" fill="black"/>
+  </svg>`,
+
+  // Keep Right (blue guide)
+  keepRight: (w=80) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 80 80">
+    <rect x="2" y="2" width="76" height="76" rx="6" fill="#003087" stroke="#003087" stroke-width="2"/>
+    <circle cx="40" cy="40" r="28" fill="none" stroke="white" stroke-width="3"/>
+    <text x="40" y="36" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="8" fill="white" text-anchor="middle" font-weight="900">KEEP</text>
+    <text x="40" y="47" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="8" fill="white" text-anchor="middle" font-weight="900">RIGHT</text>
+    <polygon points="36,53 44,53 40,60" fill="white"/>
+  </svg>`,
+
+  // No U-Turn
+  noUTurn: (w=80) => `<svg class="sign-img" width="${w}" height="${w}" viewBox="0 0 80 80">
+    <rect x="2" y="2" width="76" height="76" rx="4" fill="white" stroke="#aaa" stroke-width="1.5"/>
+    <circle cx="40" cy="40" r="28" fill="none" stroke="#BD0000" stroke-width="4.5"/>
+    <line x1="19" y1="19" x2="61" y2="61" stroke="#BD0000" stroke-width="4.5"/>
+    <path d="M30,55 L30,40 Q30,28 40,28 Q50,28 50,38 L50,48" stroke="#1a1a1a" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+    <polygon points="26,49 30,59 34,49" fill="#1a1a1a"/>
+  </svg>`,
+
+  // Parking
+  parking: (w=72) => `<svg class="sign-img" width="${w}" height="${Math.round(w*1.35)}" viewBox="0 0 72 97">
+    <rect x="2" y="2" width="68" height="93" rx="4" fill="#003087" stroke="#003087" stroke-width="2"/>
+    <text x="36" y="65" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="68" fill="white" text-anchor="middle" font-weight="900">P</text>
+    <text x="36" y="84" font-family="'Highway Gothic','Arial Black',sans-serif" font-size="8" fill="white" text-anchor="middle" font-weight="700">2 HOUR</text>
+  </svg>`,
+};
+
+// ═══════════════════════════════════════════════════
+// SCENE DATABASE — Multi-sign questions
+// Exhaustive real-world combinations
+// ═══════════════════════════════════════════════════
+
+function makeSigns(arr) {
+  return arr.map(svg => `<div class="sign-post-wrap">${svg}<div class="post"></div></div>`).join('');
+}
+
+const ALL_SCENES = [
+  // ── INTERSECTION SCENES ─────────────────────────
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.stop(), S.speed(25)]),
+    q: "You arrive at this intersection. <em>What must you do first?</em>",
+    choices:["Slow to 25 and proceed","Come to a complete stop before proceeding","Stop only if cars are coming","Slow to 25, yield if needed"],
+    ans:1, explain:"<strong>Stop completely</strong>, regardless of what the speed limit sign says. The speed limit applies once you're moving through the zone — it doesn't override the mandatory stop."
+  },
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.stop(), S.fourWay()]),
+    q: "4-way stop. You and a car to your <em>left</em> arrive simultaneously.",
+    choices:["You yield — they're to your left, they go first","They yield — right of way is yours","Both go at once","Flash headlights to negotiate"],
+    ans:1, explain:"<strong>You have right of way.</strong> At a simultaneous arrival, the car to your RIGHT yields to the car on their left. Your car is to the LEFT of theirs — so they yield to you."
+  },
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.stop(), S.allWay()]),
+    q: "All-way stop. You arrive 3rd, after two other cars. <em>When do you go?</em>",
+    choices:["Immediately — you've been waiting","After both cars ahead of you have gone","Only after checking both directions","Flash and go when clear"],
+    ans:1, explain:"<strong>All-way stops run on arrival order.</strong> Each car waits for all vehicles that arrived before it. After two have gone, it's your turn — then yield to any simultaneous arrivals."
+  },
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.yield(), S.speed(35)]),
+    q: "You approach this yield sign on a 35 mph road. <em>What's correct?</em>",
+    choices:["Stop completely, then go","Slow down, yield to crossing traffic, stop only if needed","Match speed and merge immediately","You have right of way — proceed"],
+    ans:1, explain:"<strong>Yield ≠ stop.</strong> Slow down significantly, scan for cross traffic. Only stop if vehicles are already in the intersection or too close. If clear, you can proceed without stopping."
+  },
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.light('red'), S.noTurnRed()]),
+    q: "Red light with this sign posted. The coast is clear. <em>What do you do?</em>",
+    choices:["Turn right — it's clear","Wait for green — no exceptions","Inch forward and check","Flash hazards and proceed"],
+    ans:1, explain:"<strong>No Turn on Red = no turn on red.</strong> Even if the road is clear. Even at 3am. This sign exists because sight lines or pedestrian patterns make that turn dangerous at red. Wait for green."
+  },
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.light('red'), S.speed(30)]),
+    q: "Red light, 30 mph zone. You need to turn <em>right</em>. No 'No Turn on Red' sign.",
+    choices:["Full stop, then turn right if clear","Wait for green — always","Turn immediately without stopping","Flash and go"],
+    ans:0, explain:"<strong>Stop first, then right turn on red is legal</strong> where no sign prohibits it (most US states). Come to a complete stop, check for pedestrians and cross traffic, then turn right if fully clear."
+  },
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.light('yellow'), S.speed(45)]),
+    q: "Yellow light at 45 mph. You're 80 feet from the intersection. <em>What do you do?</em>",
+    choices:["Accelerate to clear it","Brake firmly and stop — you have room","Yellow means caution, so slow slightly","Change lanes and proceed"],
+    ans:1, explain:"<strong>At 80 feet with 45 mph, you can stop safely.</strong> Yellow = stop if you can do so safely. At 45 mph your stopping distance is ~90–100 ft. It's close but braking is the safer call. Never accelerate into yellow."
+  },
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.light('green'), S.pedXing()]),
+    q: "Green light. A pedestrian steps into the crosswalk ahead. <em>You:</em>",
+    choices:["Honk and proceed — you have green","Stop completely for the pedestrian","Slow and nudge them to hurry","Flash lights as a warning"],
+    ans:1, explain:"<strong>Pedestrians in crosswalks always have right of way</strong>, regardless of your signal. A green light means go when it's safe — not unconditionally. Stop completely until they clear."
+  },
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.noUTurn(), S.speed(25)]),
+    q: "You need to turn around on this residential street. <em>What do you do?</em>",
+    choices:["U-turn is fine in low traffic","Find a driveway or side street to turn around","U-turn quickly before traffic comes","Back up instead"],
+    ans:1, explain:"<strong>No U-Turn means no U-Turn.</strong> Use a driveway, parking lot, or side street to reverse direction. Doing a U-turn here is illegal and likely dangerous — there's a reason that sign was posted."
+  },
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.stop(), S.noLeftTurn()]),
+    q: "You stop here. You need to go left. <em>What are your options?</em>",
+    choices:["Left turn is fine after stopping","Find an alternate route — left turn is prohibited","Left turn allowed if no traffic","Turn quickly before cars come"],
+    ans:1, explain:"<strong>No Left Turn is a hard prohibition.</strong> You must find another way — turn right and circle the block, or find another street. This often exists where left turns create dangerous conflicts."
+  },
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.light('green'), S.light('green'), S.speed(35)]),
+    q: "Green light at a dual-lane intersection, 35 mph zone. You're turning left. Oncoming car is going straight. <em>Who yields?</em>",
+    choices:["You yield — left turns always yield to straight traffic","Oncoming yields to you — they're in another lane","Both can go simultaneously","Whoever gets there first"],
+    ans:0, explain:"<strong>Left turns always yield to oncoming straight traffic</strong>, even on green. Wait for a clear gap before turning left. The other driver has right of way regardless of lane."
+  },
+  {
+    cat:'intersect',
+    signs: () => makeSigns([S.yield(), S.pedXing(), S.speed(20)]),
+    q: "Yield sign + pedestrian crossing + 20 mph zone. A pedestrian is waiting at the curb. <em>What do you do?</em>",
+    choices:["Stop and wait for them to cross","You don't have to stop — yield means slow only","Keep rolling if they haven't stepped out","Honk to signal them it's their turn"],
+    ans:0, explain:"<strong>Pedestrians waiting to cross in a marked crosswalk</strong> in many states have the right of way as soon as they indicate intent to cross. At 20 mph near a yield, fully stop and let them cross."
+  },
+
+  // ── HIGHWAY SCENES ─────────────────────────────
+  {
+    cat:'highway',
+    signs: () => makeSigns([S.speed(65), S.doNotPass()]),
+    q: "Highway, 65 mph zone. You're behind a slow truck. <em>What do you do?</em>",
+    choices:["Pass on the left — it's fine","You cannot pass here — stay behind","Pass on the right shoulder","Flash lights until they speed up"],
+    ans:1, explain:"<strong>Do Not Pass means exactly that</strong> — no overtaking in this zone. Usually placed on curves, hills, or congested merges where passing is genuinely dangerous. Stay behind and wait for a passing zone."
+  },
+  {
+    cat:'highway',
+    signs: () => makeSigns([S.speed(65), S.mergeLeft()]),
+    q: "65 mph highway. Your right lane is ending. <em>What's the correct merge technique?</em>",
+    choices:["Stop at the end and force your way in","Merge immediately when you see the sign","Use the full lane length, match speed, zipper merge at the end","Slow to 30 and wait for a huge gap"],
+    ans:2, explain:"<strong>Zipper merge = use the full lane.</strong> Don't merge early and create a long single-file queue. Maintain speed to the merge point, then take turns with left-lane traffic. Studies show it reduces backup by 40%."
+  },
+  {
+    cat:'highway',
+    signs: () => makeSigns([S.speed(55), S.rightLaneEnds()]),
+    q: "Right lane is ending. You're in the right lane going 55 mph. <em>What do you do?</em>",
+    choices:["Stop and wait for a gap","Match left lane speed, signal, and merge smoothly","Merge slowly — create a gap","Accelerate past everyone and cut in"],
+    ans:1, explain:"<strong>Match the speed of the lane you're entering.</strong> Check mirrors, signal early, find a gap at highway speed, and merge smoothly. Slowing dramatically creates a rear-end risk."
+  },
+  {
+    cat:'highway',
+    signs: () => makeSigns([S.noEntry(), S.wrongWay()]),
+    q: "You see these two signs on a ramp. <em>What just happened?</em>",
+    choices:["Construction ahead — detour","You are driving the wrong way on a one-way road","Speed limit zone ahead","Road is closed for the day"],
+    ans:1, explain:"<strong>You're going the wrong way.</strong> These signs face oncoming wrong-way drivers on exit ramps and divided highways. Stop immediately, activate hazards, and back up or U-turn to safety."
+  },
+  {
+    cat:'highway',
+    signs: () => makeSigns([S.speed(70), S.keepRight()]),
+    q: "70 mph interstate. You've been in the left lane for 10 minutes, going 70. <em>What should you do?</em>",
+    choices:["Stay — you're going the speed limit","Move right — left lane is for passing only","Speed up so you can stay","It depends on traffic"],
+    ans:1, explain:"<strong>Left lane is for passing, not cruising.</strong> Even at the speed limit, many states have 'keep right except to pass' laws. Blocking the left lane creates dangerous pass-on-right situations."
+  },
+  {
+    cat:'highway',
+    signs: () => makeSigns([S.speed(65), S.warn('CURVE AHEAD')]),
+    q: "65 mph highway, curve warning ahead. <em>What's your move?</em>",
+    choices:["Maintain 65 — it's the legal limit","Reduce speed before the curve, not during it","Brake hard in the curve if needed","Accelerate through — momentum helps"],
+    ans:1, explain:"<strong>Slow BEFORE the curve, not in it.</strong> Braking while turning reduces traction on the outside wheels and can cause skidding. Downshift or brake on the straight, then maintain steady speed through the curve."
+  },
+  {
+    cat:'highway',
+    signs: () => makeSigns([S.speed(55), S.railroad()]),
+    q: "55 mph highway, railroad crossing ahead. No lights or gates visible yet. <em>You:</em>",
+    choices:["Maintain speed — no train visible","Reduce speed and be prepared to stop","Blast horn as you cross","Accelerate to clear the crossing quickly"],
+    ans:1, explain:"<strong>Approach railroad crossings with caution always.</strong> Reduce speed, check both directions. Even without signals, a train may be outside your sight range. Never race a train or try to beat lights."
+  },
+  {
+    cat:'highway',
+    signs: () => makeSigns([S.oneWay(), S.speed(30)]),
+    q: "One-way street, 30 mph. You need to turn left at the next intersection. <em>Which lane should you be in?</em>",
+    choices:["Right lane only","Left lane — you're turning left","Any lane is fine","Middle lane"],
+    ans:1, explain:"<strong>On one-way streets, position yourself in the lane matching your turn direction.</strong> Turn left from the leftmost lane, right from the rightmost. This keeps the intersection flowing cleanly."
+  },
+
+  // ── ZONE SCENES ────────────────────────────────
+  {
+    cat:'zone',
+    signs: () => makeSigns([S.school(82), S.speed(25)]),
+    q: "School crossing warning + 25 mph posted. It's 8:10am on a school day. <em>Your speed?</em>",
+    choices:["25 mph — that's what it says","15–20 mph — school zone likely applies, treat with extra caution","35 mph — you haven't seen a school zone sign","25 is already slow enough, maintain it"],
+    ans:1, explain:"<strong>During school hours, treat school-adjacent zones with maximum caution.</strong> The 25 mph is the road limit. If a school zone sign shows a lower speed (often 15–20 mph), that takes precedence when children are present."
+  },
+  {
+    cat:'zone',
+    signs: () => makeSigns([S.schoolSpeed(15), S.finesDoubled()]),
+    q: "School speed limit 15 mph. Fines doubled sign. <em>What's true here?</em>",
+    choices:["15 mph when school is in session, fines doubled if you violate","15 mph always, anytime","Only applies during pick-up/drop-off","Speed limit applies, fines are the same as any zone"],
+    ans:0, explain:"<strong>School speed limits apply when children are present</strong> — typically during arrival/dismissal. The fines doubled sign is legally enforceable and usually means $200+ for a first violation. Know your state's school zone hours."
+  },
+  {
+    cat:'zone',
+    signs: () => makeSigns([S.workZone(45), S.finesDoubled()]),
+    q: "Work zone, 45 mph, fines doubled. Normal highway limit is 65. <em>Workers are present.</em>",
+    choices:["55 is fine — you're between limits","45 mph exactly — fines doubled means double the fine for any violation","65 until you see workers","Work zones are advisory, not mandatory"],
+    ans:1, explain:"<strong>Work zone speed limits are mandatory when workers are present.</strong> Fines are doubled by federal law — a $150 ticket becomes $300. Most states add points. Workers' lives depend on drivers obeying."
+  },
+  {
+    cat:'zone',
+    signs: () => makeSigns([S.noPark(), S.speed(30)]),
+    q: "No Parking Any Time sign + 30 mph road. You need to make a quick stop. <em>Can you?</em>",
+    choices:["Yes — stopping and parking are different","No — you can't stop at all","Yes, briefly, with hazard lights","Only for 5 minutes"],
+    ans:0, explain:"<strong>No Parking ≠ No Stopping.</strong> Parking means leaving your vehicle. You can typically stop temporarily to drop someone off or load/unload. If it says 'No Standing', then even momentary stopping is prohibited."
+  },
+  {
+    cat:'zone',
+    signs: () => makeSigns([S.parking(), S.noPark()]),
+    q: "Parking sign and No Parking sign on the same block. <em>How do you read this?</em>",
+    choices:["Park anywhere on the block — mixed signals","Check the arrows — each sign governs one direction of the block","Parking is prohibited everywhere","Both signs are wrong — contact the city"],
+    ans:1, explain:"<strong>Arrows on signs tell you which direction each restriction applies.</strong> A parking sign with an arrow pointing right applies to the right side of where it stands. Read the arrows carefully — they're the actual rule."
+  },
+  {
+    cat:'zone',
+    signs: () => makeSigns([S.speedZoneAhead(), S.speed(55)]),
+    q: "Speed Zone Ahead warning + current 55 mph limit. <em>What action do you take?</em>",
+    choices:["Maintain 55 — the sign is advisory","Begin slowing down — a reduced speed zone is coming","Brake hard immediately","Accelerate before the zone begins"],
+    ans:1, explain:"<strong>Speed Zone Ahead is a warning to prepare, not a limit itself.</strong> Begin gradually reducing speed so you're already at the new limit when the zone sign appears. Don't wait for the zone sign to brake."
+  },
+  {
+    cat:'zone',
+    signs: () => makeSigns([S.warn('FOG ZONE'), S.speed(45)]),
+    q: "Fog Zone warning + 45 mph limit. Heavy fog cuts visibility to 100 feet. <em>Your speed?</em>",
+    choices:["45 mph — that's the legal limit","Slower than 45 — stopping distance must fit within visible range","Accelerate to escape the fog zone","35 mph always in fog"],
+    ans:1, explain:"<strong>In fog, your speed must allow stopping within your visible range.</strong> At 45 mph, stopping distance is ~125–150 feet. If you can only see 100 feet, you need to be well below 45 mph. Also: low beams only, not high beams."
+  },
+  {
+    cat:'zone',
+    signs: () => makeSigns([S.school(), S.pedXing(), S.schoolSpeed(20)]),
+    q: "School crossing + pedestrian warning + 20 mph school speed. A child is at the curb. <em>You:</em>",
+    choices:["Maintain 20 — you're at the limit","Stop completely and wait for the child to cross","Slow to 10 and prepare to stop","Tap horn to get the child's attention"],
+    ans:1, explain:"<strong>Stop for children at crosswalks — no exceptions.</strong> Children are unpredictable. Even at 20 mph, stopping distance is ~30 feet. Come to a full stop, make eye contact, and wait until they've fully crossed and are safely on the sidewalk."
+  },
+  {
+    cat:'zone',
+    signs: () => makeSigns([S.warn('SCHOOL BUS STOP AHEAD'), S.speed(25)]),
+    q: "School bus stop warning ahead. You see a school bus with flashing red lights stopped ahead. <em>You must:</em>",
+    choices:["Slow to 15 and pass carefully","Stop at least 20 feet back on all lanes — both directions","Stop only if children are visible","Stop only on the same side as the bus"],
+    ans:1, explain:"<strong>When a school bus has red lights flashing, ALL traffic stops</strong> in both directions (unless divided by a physical barrier). Remain stopped until lights stop flashing and the bus moves. Passing is a serious violation in every state."
+  },
+  {
+    cat:'zone',
+    signs: () => makeSigns([S.noEntry(), S.oneWay(), S.speed(30)]),
+    q: "One-way street, 30 mph. You turned in and now see a Do Not Enter facing you. <em>What happened?</em>",
+    choices:["You're fine — those signs face the other direction","You entered a one-way street from the wrong end — immediately reverse safely","One-way signs don't apply to turning vehicles","The signs are incorrectly posted"],
+    ans:1, explain:"<strong>Do Not Enter facing you means you're going against traffic.</strong> This is a genuine emergency. Activate hazards, reverse or pull over immediately, check for oncoming traffic. This is how head-on collisions happen."
+  },
+
+  // ── MIXED / COMPLEX SCENES ──────────────────────
+  {
+    cat:'all',
+    signs: () => makeSigns([S.light('yellow'), S.speed(40), S.pedXing()]),
+    q: "Yellow light at 40 mph, pedestrian crossing zone. A pedestrian is <em>already in the crosswalk</em>. You're 120 feet back.",
+    choices:["Accelerate to clear before light turns red","Brake firmly — pedestrian in crosswalk and yellow light","Honk and proceed — you have enough space","Yellow means caution — slow to 20 and pass"],
+    ans:1, explain:"<strong>Two reasons to stop: yellow light AND pedestrian in crosswalk.</strong> At 40 mph, 120 feet is marginal stopping distance. The pedestrian clinches it — you must stop regardless of the light."
+  },
+  {
+    cat:'all',
+    signs: () => makeSigns([S.stop(), S.speed(15), S.school()]),
+    q: "Stop sign + 15 mph + school crossing. A school bus is double-parked ahead. <em>Order of actions?</em>",
+    choices:["Stop at sign, check for buses, proceed if path is clear","Slow to 15, check for children, proceed","Full stop at sign, confirm bus lights are off, check for children, proceed slowly","Stop only at the bus position"],
+    ans:2, explain:"<strong>Layer your checks:</strong> (1) Come to a complete stop at the sign. (2) Check the bus — if red lights are flashing, you must stop regardless. (3) When lights are off, scan for children who may still be crossing. (4) Proceed at 15 mph."
+  },
+  {
+    cat:'all',
+    signs: () => makeSigns([S.workZone(35), S.warn('FLAGGER AHEAD')]),
+    q: "Work zone 35 mph + flagger ahead. The flagger signals you to <em>stop</em>. Your light is green. <em>You:</em>",
+    choices:["Proceed — you have a green light","Stop — flaggers override signals and laws","Flash lights to show you have right of way","Slowly roll through"],
+    ans:1, explain:"<strong>Flaggers have legal authority to override signals.</strong> Their stop paddle or hand signal is legally binding. Ignoring a flagger is a traffic violation and extremely dangerous for road workers."
+  },
+  {
+    cat:'all',
+    signs: () => makeSigns([S.speed(55), S.warn('ICE'), S.warn('BRIDGE AHEAD')]),
+    q: "55 mph road. Ice warning. Bridge ahead. It's 34°F. <em>Best action?</em>",
+    choices:["Maintain 55 — the warning is precautionary","Reduce to 40–45, increase following distance, slow further on the bridge","Brake heavily on the bridge to test grip","Speed up to cross the bridge quickly"],
+    ans:1, explain:"<strong>Bridges freeze before roads do</strong> — they have cold air below AND above the deck. Ice at 34°F is entirely possible. Reduce speed significantly, smooth inputs only. Sudden braking on ice = skid. No lane changes on icy bridges."
+  },
+  {
+    cat:'all',
+    signs: () => makeSigns([S.yield(), S.noUTurn(), S.speed(35)]),
+    q: "Yield + no U-turn + 35 mph. You missed your turn and need to go back. <em>What do you do?</em>",
+    choices:["U-turn here quickly","Yield to oncoming traffic and U-turn","Continue to the next legal U-turn or side street, then reverse","Back up on the road"],
+    ans:2, explain:"<strong>No U-turn is absolute.</strong> The yield sign is for the intersection — not permission to turn. Continue forward, find a legal turning point — a side street, parking lot, or a posted U-turn zone. Never back up on a road."
+  },
+];
+
+
+// ── GAME ENGINE ──────────────────────────────────────────────
+let mode = 'all';
+let questions = [], qIdx = 0, score = 0, streak = 0;
+let timerId = null, answered = false, timedOut = false;
+let times = [], qStart = 0;
+const QLIMIT = 12, QTIME = 8;
+
+function setMode(m, btn) {
+  mode = m;
+  document.querySelectorAll('.mcard').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+}
+function shuffle(a) {
+  const b = [...a];
+  for (let i = b.length-1; i > 0; i--) {
+    const j = Math.floor(Math.random()*(i+1)); [b[i],b[j]]=[b[j],b[i]];
+  }
+  return b;
+}
+function getPool() {
+  if (mode === 'all') return ALL_SCENES;
+  const f = ALL_SCENES.filter(s => s.cat === mode || s.cat === 'all');
+  return f.length >= 6 ? f : ALL_SCENES;
+}
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+function goHome() { clearTimer(); show('intro'); }
+
+function startQuiz() {
+  questions = shuffle(getPool()).slice(0, QLIMIT);
+  qIdx = 0; score = 0; streak = 0; times = [];
+  show('quiz');
+  buildDots();
+  loadQ();
+}
+
+function buildDots() {
+  document.getElementById('dots').innerHTML =
+    questions.map((_,i) => `<div class="dot" id="dot${i}"></div>`).join('');
+}
+
+function loadQ() {
+  answered = false; timedOut = false;
+  clearTimer();
+  // Hide next button
+  document.getElementById('nextFooter').classList.remove('show');
+
+  const q = questions[qIdx];
+
+  // Dots
+  for (let i = 0; i < questions.length; i++) {
+    const d = document.getElementById(`dot${i}`);
+    d.className = 'dot' + (i < qIdx ? (d.dataset.res||'') : i===qIdx ? ' current' : '');
+  }
+
+  document.getElementById('hScore').textContent = score;
+  document.getElementById('hStreak').textContent = streak;
+
+  const keys = ['A','B','C','D'];
+  document.getElementById('sceneWrap').innerHTML = `
+    <div class="road-scene">
+      <div class="road-stripe"></div>
+      <div class="signs-row">${q.signs()}</div>
+    </div>
+    <div class="question-sub">— read the scene —</div>
+    <div class="question-text">${q.q}</div>
+    <div class="choices${q.choices.length <= 2 ? ' single-col' : ''}" id="choicesEl">
+      ${q.choices.map((c,i) => `
+        <button class="choice" onclick="pick(${i})">
+          <span class="choice-key">${keys[i]}</span>${c}
+        </button>`).join('')}
+    </div>
+    <div class="explain" id="explainEl">${q.explain}</div>
+  `;
+
+  // Keyboard (desktop)
+  document.onkeydown = e => {
+    if (!answered) {
+      const map = {a:0,b:1,c:2,d:3,'1':0,'2':1,'3':2,'4':3};
+      if (map[e.key.toLowerCase()] !== undefined) pick(map[e.key.toLowerCase()]);
+    } else if (e.key === 'Enter' || e.key === 'ArrowRight') {
+      advance();
+    }
+  };
+
+  // Scroll scene wrap to top
+  document.getElementById('sceneWrap').scrollTop = 0;
+
+  startTimer();
+  qStart = Date.now();
+}
+
+function startTimer() {
+  const fill = document.getElementById('timerFill');
+  if (!fill) return;
+  fill.style.transition = 'none';
+  fill.style.width = '100%';
+  fill.style.background = 'var(--acid)';
+  setTimeout(() => {
+    fill.style.transition = `width ${QTIME}s linear`;
+    fill.style.width = '0%';
+  }, 30);
+  let elapsed = 0;
+  timerId = setInterval(() => {
+    elapsed += 100;
+    const f = document.getElementById('timerFill');
+    if (f && elapsed > QTIME * 600) f.style.background = '#FF3A1F';
+    if (elapsed >= QTIME * 1000 && !answered) timeout();
+  }, 100);
+}
+
+function clearTimer() { clearInterval(timerId); }
+
+function timeout() {
+  timedOut = true;
+  flash('bad');
+  const f = document.getElementById('timerFill');
+  if (f) f.style.background = '#FF3A1F';
+}
+
+function pick(i) {
+  if (answered) return;
+  answered = true;
+  clearTimer();
+  times.push(Date.now() - qStart);
+  const q = questions[qIdx];
+  const ok = !timedOut && i === q.ans;
+  document.querySelectorAll('.choice').forEach((b,j) => {
+    b.disabled = true;
+    if (j === q.ans) b.classList.add('correct');
+    else if (j === i && !ok) b.classList.add('wrong');
+    else b.classList.add('show');
+  });
+  if (ok) {
+    score++; streak++;
+    document.getElementById('hScore').textContent = score;
+    document.getElementById('hStreak').textContent = streak;
+    flash('go');
+    const rt = times[times.length-1];
+    popMsg(rt < 1800 ? '⚡ FAST' : streak >= 3 ? `🔥 ×${streak}` : '✓', 'ok');
+    markDot('done-correct');
+  } else {
+    streak = 0;
+    document.getElementById('hStreak').textContent = 0;
+    flash('bad');
+    popMsg(timedOut ? 'TOO SLOW' : '✗', 'bad');
+    markDot('done-wrong');
+  }
+  // Show explanation
+  const ex = document.getElementById('explainEl');
+  if (ex) ex.classList.add('show');
+  // Show next button after a beat
+  setTimeout(() => {
+    document.getElementById('nextFooter').classList.add('show');
+  }, 350);
+}
+
+function markDot(cls) {
+  const d = document.getElementById(`dot${qIdx}`);
+  if (d) { d.dataset.res = ' ' + cls; d.className = 'dot ' + cls; }
+}
+
+function advance() {
+  document.getElementById('nextFooter').classList.remove('show');
+  clearTimer();
+  qIdx++;
+  if (qIdx >= questions.length) showResults();
+  else loadQ();
+}
+
+function flash(type) {
+  const el = document.getElementById('flash');
+  el.className = 'flash';
+  void el.offsetWidth;
+  el.className = `flash ${type}`;
+  setTimeout(() => el.className = 'flash', 500);
+}
+
+function popMsg(msg, cls) {
+  const el = document.getElementById('pop');
+  el.textContent = msg;
+  el.className = `pop ${cls}`;
+  void el.offsetWidth;
+  el.className = `pop ${cls} show`;
+  setTimeout(() => el.className = 'pop', 700);
+}
+
+function showResults() {
+  show('results');
+  const pct = Math.round(score / questions.length * 100);
+  const avgMs = times.length ? Math.round(times.reduce((a,b) => a+b, 0) / times.length) : 0;
+  document.getElementById('rScore').innerHTML = `<em>${score}</em> / ${questions.length}`;
+  document.getElementById('rStats').textContent = `avg reaction · ${(avgMs/1000).toFixed(1)}s · ${pct}% accuracy`;
+  setTimeout(() => { document.getElementById('rFill').style.width = pct + '%'; }, 80);
+  const verdicts = [
+    [90, "Scene scanning is becoming automatic. Your brain is building the right shortcuts."],
+    [70, "Good pattern recognition. Repeat the categories you missed most."],
+    [50, "You're learning the patterns. Daily reps will wire this in — go again."],
+    [0,  "Every wrong answer is a sign to study. Read the explanations — then train again."]
+  ];
+  document.getElementById('rVerdict').textContent = verdicts.find(([min]) => pct >= min)[1];
+}
+</script>
+</body>
+</html>
