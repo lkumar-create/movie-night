@@ -1,27 +1,26 @@
-// Requires: npm install @vercel/kv
-// Then in Vercel: Storage tab -> Create Database -> KV -> Connect to this project
-// (this auto-adds KV_REST_API_URL and KV_REST_API_TOKEN env vars, no manual setup needed)
-import { kv } from '@vercel/kv';
-
+// Simple in-memory rate limiting (resets on deploy/cold start).
+// Not bulletproof, but combined with the origin check below it's plenty
+// for current traffic levels — no database setup required.
+const rateLimitMap = new Map();
 const DAILY_LIMIT = 80; // tightened from 200 to match realistic traffic
 const ALLOWED_ORIGIN = 'thismovienight.com';
 
-async function checkRateLimit() {
-  const today = new Date().toISOString().slice(0, 10); // e.g. "2026-08-27"
-  const key = `ratelimit:${today}`;
+function checkRateLimit() {
+  const today = new Date().toDateString();
 
-  // Increment persists across serverless cold starts (unlike an in-memory Map)
-  const count = await kv.incr(key);
-
-  // Set expiry only on the first request of the day so the key cleans itself up
-  if (count === 1) {
-    await kv.expire(key, 60 * 60 * 24); // 24 hours
+  if (!rateLimitMap.has(today)) {
+    rateLimitMap.clear(); // drop any stale previous-day entries
+    rateLimitMap.set(today, 0);
   }
 
-  return {
-    allowed: count <= DAILY_LIMIT,
-    remaining: Math.max(0, DAILY_LIMIT - count),
-  };
+  const count = rateLimitMap.get(today);
+
+  if (count >= DAILY_LIMIT) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  rateLimitMap.set(today, count + 1);
+  return { allowed: true, remaining: DAILY_LIMIT - (count + 1) };
 }
 
 function isAllowedOrigin(req) {
@@ -52,16 +51,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid request' });
   }
 
-  // Check rate limit (now backed by Vercel KV, works across all instances)
-  let rateLimit;
-  try {
-    rateLimit = await checkRateLimit();
-  } catch (e) {
-    console.error('Rate limit check failed:', e);
-    // Fail open but log it — don't take the whole site down if KV has a hiccup
-    rateLimit = { allowed: true, remaining: DAILY_LIMIT };
-  }
-
+  // Check rate limit
+  const rateLimit = checkRateLimit();
   res.setHeader('X-RateLimit-Remaining', rateLimit.remaining);
 
   if (!rateLimit.allowed) {
