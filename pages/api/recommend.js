@@ -1,27 +1,41 @@
-// Simple in-memory rate limiting (resets on deploy/restart)
-// For production, use Vercel KV or Redis
-const rateLimitMap = new Map();
-const DAILY_LIMIT = 200; // requests per day
-const RATE_LIMIT_WINDOW = 24 * 60 * 60 * 1000; // 24 hours
+// Requires: npm install @vercel/kv
+// Then in Vercel: Storage tab -> Create Database -> KV -> Connect to this project
+// (this auto-adds KV_REST_API_URL and KV_REST_API_TOKEN env vars, no manual setup needed)
+import { kv } from '@vercel/kv';
 
-function checkRateLimit() {
-  const now = Date.now();
-  const today = new Date().toDateString();
-  
-  if (!rateLimitMap.has(today)) {
-    // Clear old entries
-    rateLimitMap.clear();
-    rateLimitMap.set(today, { count: 0, resetAt: now + RATE_LIMIT_WINDOW });
+const DAILY_LIMIT = 80; // tightened from 200 to match realistic traffic
+const ALLOWED_ORIGIN = 'thismovienight.com';
+
+async function checkRateLimit() {
+  const today = new Date().toISOString().slice(0, 10); // e.g. "2026-08-27"
+  const key = `ratelimit:${today}`;
+
+  // Increment persists across serverless cold starts (unlike an in-memory Map)
+  const count = await kv.incr(key);
+
+  // Set expiry only on the first request of the day so the key cleans itself up
+  if (count === 1) {
+    await kv.expire(key, 60 * 60 * 24); // 24 hours
   }
-  
-  const limit = rateLimitMap.get(today);
-  
-  if (limit.count >= DAILY_LIMIT) {
-    return { allowed: false, remaining: 0 };
-  }
-  
-  limit.count++;
-  return { allowed: true, remaining: DAILY_LIMIT - limit.count };
+
+  return {
+    allowed: count <= DAILY_LIMIT,
+    remaining: Math.max(0, DAILY_LIMIT - count),
+  };
+}
+
+function isAllowedOrigin(req) {
+  const origin = req.headers.origin || '';
+  const referer = req.headers.referer || '';
+  return origin.includes(ALLOWED_ORIGIN) || referer.includes(ALLOWED_ORIGIN);
+}
+
+function isValidBody(body) {
+  const { preferences } = body || {};
+  if (!Array.isArray(preferences)) return false;
+  if (preferences.length === 0 || preferences.length > 10) return false;
+  if (!preferences.every((p) => typeof p === 'string' && p.length <= 500)) return false;
+  return true;
 }
 
 export default async function handler(req, res) {
@@ -29,23 +43,35 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Check rate limit
-  const rateLimit = checkRateLimit();
+  // Reject requests that didn't come from the actual site (blocks direct/bot hits)
+  if (!isAllowedOrigin(req)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  if (!isValidBody(req.body)) {
+    return res.status(400).json({ error: 'Invalid request' });
+  }
+
+  // Check rate limit (now backed by Vercel KV, works across all instances)
+  let rateLimit;
+  try {
+    rateLimit = await checkRateLimit();
+  } catch (e) {
+    console.error('Rate limit check failed:', e);
+    // Fail open but log it — don't take the whole site down if KV has a hiccup
+    rateLimit = { allowed: true, remaining: DAILY_LIMIT };
+  }
+
   res.setHeader('X-RateLimit-Remaining', rateLimit.remaining);
-  
+
   if (!rateLimit.allowed) {
-    return res.status(429).json({ 
+    return res.status(429).json({
       error: 'Daily limit reached. Come back tomorrow!',
-      message: 'Movie Night has reached its daily recommendation limit. Please try again tomorrow.'
+      message: 'Movie Night has reached its daily recommendation limit. Please try again tomorrow.',
     });
   }
 
   const { preferences, mode } = req.body;
-
-  if (!preferences || preferences.length === 0) {
-    return res.status(400).json({ error: 'No preferences provided' });
-  }
-
   const isBadMovieMode = mode === 'bad';
 
   const systemPrompt = isBadMovieMode
@@ -147,61 +173,53 @@ Curate thoughtfully:
       const searchType = rec.type === 'series' ? 'tv' : 'movie';
       const year = rec.year;
       const titleLower = rec.title.toLowerCase().trim();
-      
-      // Helper to check if title matches
+
       const isTitleMatch = (result) => {
         const resultTitle = (result.title || result.name || '').toLowerCase().trim();
-        // Exact match or very close
-        return resultTitle === titleLower || 
-               resultTitle.includes(titleLower) || 
+        return resultTitle === titleLower ||
+               resultTitle.includes(titleLower) ||
                titleLower.includes(resultTitle);
       };
-      
-      // Helper to check year (allow 1 year difference for release date variations)
+
       const isYearMatch = (result) => {
         if (!year) return true;
         const releaseYear = parseInt((result.release_date || result.first_air_date || '').split('-')[0]);
         const targetYear = parseInt(year);
         return Math.abs(releaseYear - targetYear) <= 1;
       };
-      
-      // Try multiple search strategies in order
+
       const searchStrategies = [
-        rec.title,                                    // Just title
-        rec.tmdb_query,                               // Claude's suggested query
-        rec.title.replace(/[:\-–—]/g, ' '),          // Title without punctuation
+        rec.title,
+        rec.tmdb_query,
+        rec.title.replace(/[:\-–—]/g, ' '),
       ].filter(Boolean);
-      
+
       for (const query of searchStrategies) {
         try {
-          // Search with year filter first
           let url = `https://api.themoviedb.org/3/search/${searchType}?query=${encodeURIComponent(query)}&include_adult=false&language=en-US&page=1`;
           if (year) {
             url += `&year=${year}`;
           }
-          
+
           const response = await fetch(url, {
             headers: {
               Authorization: `Bearer ${process.env.TMDB_ACCESS_TOKEN}`,
               'Content-Type': 'application/json',
             },
           });
-          
+
           if (response.ok) {
             const data = await response.json();
             if (data.results && data.results.length > 0) {
-              // Find best match: title + year both match
               const bestMatch = data.results.find(m => isTitleMatch(m) && isYearMatch(m));
               if (bestMatch) return bestMatch;
-              
-              // If year filter was used and we got results, the first is likely correct
+
               if (year && data.results[0] && isTitleMatch(data.results[0])) {
                 return data.results[0];
               }
             }
           }
-          
-          // Try without year filter
+
           const responseNoYear = await fetch(
             `https://api.themoviedb.org/3/search/${searchType}?query=${encodeURIComponent(query)}&include_adult=false&language=en-US&page=1`,
             {
@@ -211,11 +229,10 @@ Curate thoughtfully:
               },
             }
           );
-          
+
           if (responseNoYear.ok) {
             const dataNoYear = await responseNoYear.json();
             if (dataNoYear.results && dataNoYear.results.length > 0) {
-              // Must match both title and year
               const match = dataNoYear.results.find(m => isTitleMatch(m) && isYearMatch(m));
               if (match) return match;
             }
@@ -224,19 +241,18 @@ Curate thoughtfully:
           console.error(`TMDB search failed for "${query}":`, e);
         }
       }
-      
+
       return null;
     };
 
-    // Fetch TMDB data for all recommendations IN PARALLEL (faster)
     const recommendationsWithData = await Promise.all(
       result.recommendations.map(async (rec) => {
         try {
           const movie = await searchTMDB(rec);
-          
+
           if (movie) {
             const encodedTitle = encodeURIComponent(rec.title);
-            
+
             return {
               ...rec,
               poster_path: movie.poster_path,
@@ -254,8 +270,7 @@ Curate thoughtfully:
         } catch (e) {
           console.error('TMDB fetch error:', e);
         }
-        
-        // Fallback with just links if TMDB fails
+
         const encodedTitle = encodeURIComponent(rec.title);
         return {
           ...rec,
